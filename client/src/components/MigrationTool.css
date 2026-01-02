@@ -1,0 +1,234 @@
+.migration-tool {
+    padding: 2rem;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.migration-tool h2 {
+    color: #fff;
+    margin-bottom: 0.5rem;
+}
+
+.migration-tool .description {
+    color: #a0a0a0;
+    margin-bottom: 2rem;
+}
+
+.migration-tool h3 {
+    color: #e0e0e0;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+}
+
+/* Status Section */
+.status-section {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-weight: 600;
+}
+
+.status-badge.checking {
+    background: rgba(255, 193, 7, 0.2);
+    color: #ffc107;
+}
+
+.status-badge.online {
+    background: rgba(76, 175, 80, 0.2);
+    color: #4caf50;
+}
+
+.status-badge.offline {
+    background: rgba(244, 67, 54, 0.2);
+    color: #f44336;
+}
+
+.server-instructions {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+}
+
+.server-instructions pre {
+    background: #1a1a2e;
+    padding: 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    color: #4ade80;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.retry-btn {
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.retry-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+/* Stats Section */
+.stats-section {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.stat-item {
+    text-align: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+}
+
+.stat-item.total {
+    background: linear-gradient(135deg, rgba(244, 67, 54, 0.2), rgba(255, 152, 0, 0.2));
+    border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+.stat-value {
+    display: block;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.85rem;
+    color: #a0a0a0;
+    margin-top: 0.25rem;
+}
+
+/* Actions Section */
+.actions-section {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.migrate-btn {
+    flex: 1;
+    padding: 1rem 2rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.migrate-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+}
+
+.migrate-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.clear-btn {
+    padding: 1rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    background: rgba(244, 67, 54, 0.2);
+    border: 1px solid rgba(244, 67, 54, 0.4);
+    border-radius: 12px;
+    color: #f44336;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.clear-btn:hover:not(:disabled) {
+    background: rgba(244, 67, 54, 0.3);
+}
+
+.clear-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Messages */
+.error-message {
+    background: rgba(244, 67, 54, 0.2);
+    border: 1px solid rgba(244, 67, 54, 0.4);
+    color: #f44336;
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+}
+
+.result-message {
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+}
+
+.result-message.success {
+    background: rgba(76, 175, 80, 0.2);
+    border: 1px solid rgba(76, 175, 80, 0.4);
+    color: #4caf50;
+}
+
+.result-message ul {
+    margin: 0.5rem 0 0 1.5rem;
+}
+
+/* Benefits Section */
+.benefits-section {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+    border: 1px solid rgba(102, 126, 234, 0.2);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.benefits-section ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.benefits-section li {
+    padding: 0.5rem 0;
+    color: #d0d0d0;
+}
+
+.benefits-section li strong {
+    color: #fff;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .actions-section {
+        flex-direction: column;
+    }
+}
