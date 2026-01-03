@@ -20,6 +20,30 @@ export default function TemplateCard({ template, onSelect, onToggleFavorite, isF
             <div className="card-image">
                 <img src={template.image} alt={template.title} referrerPolicy="no-referrer" />
 
+                {/* Starred Badge (SuperAdmin feature) */}
+                {template.isStarred && (
+                    <div
+                        className="starred-badge"
+                        style={{
+                            position: 'absolute',
+                            top: '8px',
+                            left: '8px',
+                            background: 'linear-gradient(135deg, #fbbf24, #f59e0b)',
+                            color: 'white',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            boxShadow: '0 2px 8px rgba(251, 191, 36, 0.4)'
+                        }}
+                    >
+                        ⭐ Nổi bật
+                    </div>
+                )}
+
                 {/* Favorite Button */}
                 <button
                     className={`favorite-btn ${isFavorite ? 'active' : ''}`}

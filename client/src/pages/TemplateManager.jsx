@@ -526,7 +526,7 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                 // Transform server data to match expected format
                 const formattedTemplates = serverTemplates.map(t => ({
                     ...t,
-                    image: t.image_path ? getImageUrl(t.image_path) : t.image,
+                    image: getImageUrl(t.image_path || t.image),
                     textSlots: t.textSlots || [],
                     imageSlots: t.imageSlots || [],
                     colorSlots: t.colorSlots || [],
@@ -582,7 +582,7 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                 const templates = await templatesApi.getAll();
                 const formattedTemplates = templates.map(t => ({
                     ...t,
-                    image: t.image_path ? getImageUrl(t.image_path) : t.image,
+                    image: getImageUrl(t.image_path || t.image),
                 }));
                 setSavedTemplates(formattedTemplates);
             } else {
@@ -618,7 +618,7 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                 const templates = await templatesApi.getAll();
                 const formattedTemplates = templates.map(t => ({
                     ...t,
-                    image: t.image_path ? getImageUrl(t.image_path) : t.image,
+                    image: getImageUrl(t.image_path || t.image),
                 }));
                 setSavedTemplates(formattedTemplates);
             } else {
@@ -1347,7 +1347,7 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                                     // Reload templates
                                     if (serverOnline) {
                                         const templates = await templatesApi.getAll();
-                                        setSavedTemplates(templates.map(t => ({ ...t, image: t.image_path ? getImageUrl(t.image_path) : t.image })));
+                                        setSavedTemplates(templates.map(t => ({ ...t, image: getImageUrl(t.image_path || t.image) })));
                                         const allCats = await categoriesApi.getAll();
                                         setCategories(allCats);
                                     } else {

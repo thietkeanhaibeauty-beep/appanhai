@@ -31,22 +31,6 @@ export default function SubscriptionBanner() {
         );
     }
 
-    // Expired/No subscription banner
-    if (!hasActiveSubscription) {
-        return (
-            <div className="subscription-banner expired">
-                <div className="banner-content">
-                    <span className="banner-icon">⚠️</span>
-                    <span className="banner-text">
-                        Gói của bạn đã hết hạn!
-                    </span>
-                </div>
-                <Link to="/pricing" className="banner-btn">
-                    Gia hạn ngay
-                </Link>
-            </div>
-        );
-    }
-
+    // Không hiện banner expired nữa
     return null;
 }

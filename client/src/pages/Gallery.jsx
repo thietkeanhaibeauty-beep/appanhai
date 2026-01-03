@@ -1,28 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import TemplateCard from '../components/TemplateCard';
 import TemplateModal from '../components/TemplateModal';
 import CanvasPreview from '../components/CanvasPreview';
 import ApiKeySettings from '../components/ApiKeySettings';
-import { templatesApi, designsApi, getImageUrl } from '../services/api';
+import { templatesApi, categoriesApi, designsApi, getImageUrl } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeatures } from '../hooks/useFeatures';
 import { useUserRole } from '../hooks/useUserRole';
 
-// No more mock templates - only load from NocoDB server
+// Infinite scroll constants
+const TEMPLATES_PER_LOAD = 30;
 
 export default function Gallery({ searchValue, activeCategory }) {
     const navigate = useNavigate();
     const { user } = useAuth();
     const { hasFeature } = useFeatures();
-    const { isAdmin } = useUserRole();
+    const { isAdmin, isSuperAdmin } = useUserRole();
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [showLoginPrompt, setShowLoginPrompt] = useState(false);
     const [allTemplates, setAllTemplates] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [favorites, setFavorites] = useState([]);
     const [_isLoading, setIsLoading] = useState(true);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [displayCount, setDisplayCount] = useState(TEMPLATES_PER_LOAD);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const loadMoreRef = useRef(null);
 
     // Canvas Preview state
     const [showCanvasPreview, setShowCanvasPreview] = useState(false);
@@ -30,11 +35,21 @@ export default function Gallery({ searchValue, activeCategory }) {
     const [generatedImage, setGeneratedImage] = useState(null);
 
 
-    // Load templates and favorites on mount
+    // Load templates, categories and favorites on mount
     useEffect(() => {
         loadTemplates();
+        loadCategories();
         loadFavorites();
     }, []);
+
+    const loadCategories = async () => {
+        try {
+            const cats = await categoriesApi.getAll();
+            setCategories(cats);
+        } catch (error) {
+            console.error('Error loading categories:', error);
+        }
+    };
 
     const loadTemplates = async () => {
         setIsLoading(true);
@@ -126,20 +141,62 @@ export default function Gallery({ searchValue, activeCategory }) {
         try {
             console.log('Saving template:', templateId, data);
             await templatesApi.update(templateId, data);
-
-            // Allow time for backend to process if needed, then update local state
-            setTemplates(prev => prev.map(t =>
-                t.id === templateId ? { ...t, ...data } : t
-            ));
-
-            // Also update filteredTemplates if necessary (though they derive from templates usually)
-            // But if we're using a separate state for filtered, we might need to update it too.
-            // For now, assuming templates is the source of truth or effect will re-filter.
-
+            await loadTemplates(); // Reload to get fresh data
             return { success: true };
         } catch (error) {
             console.error("Failed to save template:", error);
             return { success: false, error };
+        }
+    };
+
+    // === DELETE TEMPLATE HANDLER ===
+    const handleDeleteTemplate = async (templateId) => {
+        if (!window.confirm('Bạn có chắc muốn xóa template này?')) return;
+        try {
+            await templatesApi.delete(templateId);
+            setIsModalOpen(false);
+            setSelectedTemplate(null);
+            await loadTemplates();
+            alert('✅ Đã xóa template!');
+        } catch (error) {
+            console.error('Delete error:', error);
+            alert('❌ Lỗi xóa template: ' + error.message);
+        }
+    };
+
+    // === TOGGLE STAR HANDLER (SuperAdmin only) ===
+    const handleToggleStar = async (templateId, isStarred) => {
+        try {
+            await templatesApi.toggleStar(templateId, isStarred);
+            // Update local state
+            setAllTemplates(prev => prev.map(t =>
+                t.id === templateId ? { ...t, isStarred } : t
+            ));
+            // Also update selected template if it's the same
+            if (selectedTemplate?.id === templateId) {
+                setSelectedTemplate(prev => ({ ...prev, isStarred }));
+            }
+        } catch (error) {
+            console.error('Toggle star error:', error);
+            alert('❌ Lỗi: ' + error.message);
+        }
+    };
+
+    // === UPDATE CATEGORY HANDLER (SuperAdmin only) ===
+    const handleUpdateCategory = async (templateId, categoryId) => {
+        try {
+            await templatesApi.updateCategory(templateId, categoryId);
+            // Update local state
+            setAllTemplates(prev => prev.map(t =>
+                t.id === templateId ? { ...t, category: categoryId } : t
+            ));
+            // Also update selected template
+            if (selectedTemplate?.id === templateId) {
+                setSelectedTemplate(prev => ({ ...prev, category: categoryId }));
+            }
+        } catch (error) {
+            console.error('Update category error:', error);
+            alert('❌ Lỗi: ' + error.message);
         }
     };
 
@@ -1100,6 +1157,7 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
         }
     };
 
+    // Filter, sort by starred first, then apply pagination
     const filteredTemplates = allTemplates.filter((template) => {
         const matchesSearch = template.title && template.title.toLowerCase().includes((searchValue || '').toLowerCase());
 
@@ -1108,23 +1166,76 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
             return matchesSearch && favorites.includes(template.id);
         }
 
-        // Default to 'all' logic if no active category
-        if (!activeCategory || activeCategory === 'all') {
+        // Handle starred category (default view)
+        if (activeCategory === 'starred' || !activeCategory) {
+            return matchesSearch && template.isStarred;
+        }
+
+        // Show all templates
+        if (activeCategory === 'all') {
             return matchesSearch;
         }
 
         // Check both category and category_id fields for matching
-        // Convert both to string for safe comparison
         const templateCategory = String(template.category || template.category_id || '');
         const targetCategory = String(activeCategory);
 
         return matchesSearch && templateCategory === targetCategory;
     });
 
+    // Sort: starred templates first
+    const sortedTemplates = [...filteredTemplates].sort((a, b) => {
+        if (a.isStarred && !b.isStarred) return -1;
+        if (!a.isStarred && b.isStarred) return 1;
+        return 0;
+    });
+
+    // Infinite scroll - show only displayCount templates
+    const visibleTemplates = sortedTemplates.slice(0, displayCount);
+    const hasMore = displayCount < sortedTemplates.length;
+
+    // Load more function
+    const loadMore = useCallback(() => {
+        if (isLoadingMore || !hasMore) return;
+
+        setIsLoadingMore(true);
+        // Simulate slight delay for smooth UX
+        setTimeout(() => {
+            setDisplayCount(prev => Math.min(prev + TEMPLATES_PER_LOAD, sortedTemplates.length));
+            setIsLoadingMore(false);
+        }, 300);
+    }, [isLoadingMore, hasMore, sortedTemplates.length]);
+
+    // IntersectionObserver for infinite scroll
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+                    loadMore();
+                }
+            },
+            { threshold: 0.1, rootMargin: '100px' }
+        );
+
+        if (loadMoreRef.current) {
+            observer.observe(loadMoreRef.current);
+        }
+
+        return () => observer.disconnect();
+    }, [hasMore, isLoadingMore, loadMore]);
+
+    // Reset display count when category/search changes
+    useEffect(() => {
+        setDisplayCount(TEMPLATES_PER_LOAD);
+    }, [activeCategory, searchValue]);
+
     // Get title based on category
     const getTitle = () => {
         if (activeCategory === 'favorites') {
             return 'Mẫu Yêu Thích';
+        }
+        if (activeCategory === 'starred' || !activeCategory) {
+            return '⭐ Mẫu Nổi Bật';
         }
         return 'Thư Viện Template';
     };
@@ -1132,6 +1243,9 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
     const getSubtitle = () => {
         if (activeCategory === 'favorites') {
             return `${filteredTemplates.length} mẫu đã lưu`;
+        }
+        if (activeCategory === 'starred' || !activeCategory) {
+            return `${filteredTemplates.length} mẫu được đề xuất`;
         }
         return 'Chọn template và tùy chỉnh để tạo thiết kế của bạn';
     };
@@ -1150,8 +1264,8 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
             <ApiKeySettings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
             {/* Templates Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-20">
-                {filteredTemplates.map((template) => (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-4">
+                {visibleTemplates.map((template) => (
                     <TemplateCard
                         key={template.id}
                         template={template}
@@ -1161,6 +1275,52 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
                     />
                 ))}
             </div>
+
+            {/* Infinite Scroll Loader */}
+            {hasMore && (
+                <div
+                    ref={loadMoreRef}
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        padding: '30px 0',
+                        gap: '12px'
+                    }}
+                >
+                    {isLoadingMore ? (
+                        <>
+                            <div style={{
+                                width: '24px',
+                                height: '24px',
+                                border: '3px solid var(--border-color)',
+                                borderTopColor: '#6366f1',
+                                borderRadius: '50%',
+                                animation: 'spin 0.8s linear infinite'
+                            }} />
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                                Đang tải thêm...
+                            </span>
+                        </>
+                    ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', opacity: 0.7 }}>
+                            Cuộn xuống để xem thêm ({sortedTemplates.length - displayCount} mẫu còn lại)
+                        </span>
+                    )}
+                </div>
+            )}
+
+            {/* All loaded indicator */}
+            {!hasMore && sortedTemplates.length > TEMPLATES_PER_LOAD && (
+                <div style={{
+                    textAlign: 'center',
+                    padding: '20px',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.9rem'
+                }}>
+                    ✓ Đã hiển thị tất cả {sortedTemplates.length} mẫu
+                </div>
+            )}
 
             {
                 filteredTemplates.length === 0 && (
@@ -1186,11 +1346,17 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
                 isOpen={isModalOpen}
                 onClose={() => {
                     handleCloseModal();
-                    setGeneratedImage(null); // Clear image on close
+                    setGeneratedImage(null);
                 }}
                 onGenerate={handleGenerate}
                 onSaveTemplate={handleSaveTemplate}
-                generatedImage={generatedImage} // Pass generated image
+                generatedImage={generatedImage}
+                // New props for Gallery enhancements
+                onDelete={handleDeleteTemplate}
+                onToggleStar={handleToggleStar}
+                onUpdateCategory={handleUpdateCategory}
+                isSuperAdmin={isSuperAdmin}
+                categories={categories}
             />
 
             {/* Canvas Preview Modal */}

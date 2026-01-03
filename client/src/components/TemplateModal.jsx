@@ -30,7 +30,11 @@ const IMAGE_MODELS = {
     ]
 };
 
-export default function TemplateModal({ template, isOpen, onClose, onGenerate, onSaveTemplate, generatedImage }) {
+export default function TemplateModal({
+    template, isOpen, onClose, onGenerate, onSaveTemplate, generatedImage,
+    // New props for Gallery enhancements
+    onDelete, onToggleStar, onUpdateCategory, isSuperAdmin, categories = []
+}) {
     const [activeTab, setActiveTab] = useState('text');
     const [formData, setFormData] = useState({});
     const [imageUploads, setImageUploads] = useState({});
@@ -605,12 +609,91 @@ export default function TemplateModal({ template, isOpen, onClose, onGenerate, o
                     {/* Right Side - Form */}
                     <div className="modal-form">
                         <div className="form-header">
-                            <h2 className="form-title">{template.title}</h2>
-                            <p className="form-description">
-                                {template.description || 'Template banner quảng cáo với khung tròn, người mẫu và các element trang trí'}
-                            </p>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                                <div style={{ flex: 1 }}>
+                                    <h2 className="form-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        {template.isStarred && <span style={{ color: '#fbbf24' }}>⭐</span>}
+                                        {template.title}
+                                    </h2>
+                                    <p className="form-description">
+                                        {template.description || 'Template banner quảng cáo với khung tròn, người mẫu và các element trang trí'}
+                                    </p>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                                    {/* Star Button - SuperAdmin only */}
+                                    {isSuperAdmin && onToggleStar && (
+                                        <button
+                                            onClick={() => onToggleStar(template.id, !template.isStarred)}
+                                            title={template.isStarred ? 'Bỏ gắn sao' : 'Gắn sao (hiển thị nổi bật)'}
+                                            style={{
+                                                padding: '8px 12px',
+                                                background: template.isStarred ? 'linear-gradient(135deg, #fbbf24, #f59e0b)' : 'var(--bg-tertiary)',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                fontSize: '1rem',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px'
+                                            }}
+                                        >
+                                            {template.isStarred ? '⭐' : '☆'}
+                                        </button>
+                                    )}
+
+                                    {/* Delete Button */}
+                                    {onDelete && (
+                                        <button
+                                            onClick={() => onDelete(template.id)}
+                                            title="Xóa template"
+                                            style={{
+                                                padding: '8px 12px',
+                                                background: 'var(--bg-tertiary)',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                fontSize: '1rem',
+                                                color: '#ef4444'
+                                            }}
+                                        >
+                                            🗑️
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Category Dropdown - SuperAdmin only */}
+                            {isSuperAdmin && onUpdateCategory && categories.length > 0 && (
+                                <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>📁 Danh mục:</span>
+                                    <select
+                                        value={template.category || ''}
+                                        onChange={(e) => onUpdateCategory(template.id, e.target.value)}
+                                        style={{
+                                            padding: '6px 12px',
+                                            background: 'var(--bg-tertiary)',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '6px',
+                                            fontSize: '0.85rem',
+                                            cursor: 'pointer',
+                                            flex: 1,
+                                            maxWidth: '200px'
+                                        }}
+                                    >
+                                        <option value="">-- Chưa phân loại --</option>
+                                        {categories.map(cat => (
+                                            <option key={cat.id} value={cat.id}>
+                                                {cat.icon} {cat.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
                             {isCustomTemplate && (
-                                <div className="template-info">
+                                <div className="template-info" style={{ marginTop: '8px' }}>
                                     <span className="info-badge text-badge">{template.textSlots?.length || 0} text</span>
                                     <span className="info-badge image-badge">{template.imageSlots?.length || 0} ảnh</span>
                                     <span className="info-badge color-badge">{template.colorSlots?.length || 0} màu</span>

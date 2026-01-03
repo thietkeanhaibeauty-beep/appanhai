@@ -144,9 +144,10 @@ export const templatesApi = {
         await initNocoDB();
         if (!TABLE_IDS.Templates) return [];
 
-        let endpoint = `/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Templates}`;
+        // NocoDB defaults to 25 records, set limit=1000 to get all templates
+        let endpoint = `/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Templates}?limit=1000`;
         if (category && category !== 'all') {
-            endpoint += `?where=(Category,eq,${category})`;
+            endpoint += `&where=(Category,eq,${category})`;
         }
 
         const result = await nocoApiCall(endpoint);
@@ -158,6 +159,7 @@ export const templatesApi = {
             description: t.Description || '',
             category: t.Category,
             image: t.Image,
+            isStarred: t.IsStarred || false,
             textSlots: safeJsonParse(t.TextSlots),
             imageSlots: safeJsonParse(t.ImageSlots),
             colorSlots: safeJsonParse(t.ColorSlots),
@@ -241,6 +243,32 @@ export const templatesApi = {
         return nocoApiCall(`/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Templates}/${row.Id}`, {
             method: 'DELETE'
         });
+    },
+
+    // Toggle star status for a template (superadmin only)
+    toggleStar: async (id, isStarred) => {
+        await initNocoDB();
+        const existing = await nocoApiCall(`/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Templates}?where=(RecordId,eq,${id})`);
+        const row = existing.list?.[0];
+        if (!row) throw new Error('Template not found');
+
+        return nocoApiCall(`/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Templates}/${row.Id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ IsStarred: isStarred })
+        });
+    },
+
+    // Update template category
+    updateCategory: async (id, categoryId) => {
+        await initNocoDB();
+        const existing = await nocoApiCall(`/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Templates}?where=(RecordId,eq,${id})`);
+        const row = existing.list?.[0];
+        if (!row) throw new Error('Template not found');
+
+        return nocoApiCall(`/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Templates}/${row.Id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ Category: categoryId })
+        });
     }
 };
 
@@ -317,15 +345,23 @@ export function getImageUrl(path) {
                 fileId = fileMatch[1];
             }
 
-            // Format: https://drive.google.com/open?id=FILE_ID
+            // Format: https://drive.google.com/open?id=FILE_ID or uc?export=view&id=FILE_ID
             const openMatch = path.match(/[?&]id=([^&]+)/);
             if (openMatch) {
                 fileId = openMatch[1];
             }
 
-            // If we found a file ID, convert to direct link
+            // If we found a file ID, use lh3.googleusercontent which bypasses CORS and rate-limiting
             if (fileId) {
-                return `https://drive.google.com/uc?export=view&id=${fileId}`;
+                return `https://lh3.googleusercontent.com/d/${fileId}=w1000`;
+            }
+        }
+
+        // Handle existing uc?export=view links that might be stored in database
+        if (path.includes('drive.google.com/uc')) {
+            const ucMatch = path.match(/[?&]id=([^&]+)/);
+            if (ucMatch) {
+                return `https://lh3.googleusercontent.com/d/${ucMatch[1]}=w1000`;
             }
         }
 
