@@ -5,6 +5,7 @@ import TemplateModal from '../components/TemplateModal';
 import CanvasPreview from '../components/CanvasPreview';
 import ApiKeySettings from '../components/ApiKeySettings';
 import { templatesApi, designsApi, getImageUrl } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { useFeatures } from '../hooks/useFeatures';
 import { useUserRole } from '../hooks/useUserRole';
 
@@ -12,10 +13,12 @@ import { useUserRole } from '../hooks/useUserRole';
 
 export default function Gallery({ searchValue, activeCategory }) {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const { hasFeature } = useFeatures();
     const { isAdmin } = useUserRole();
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [showLoginPrompt, setShowLoginPrompt] = useState(false);
     const [allTemplates, setAllTemplates] = useState([]);
     const [favorites, setFavorites] = useState([]);
     const [_isLoading, setIsLoading] = useState(true);
@@ -86,6 +89,12 @@ export default function Gallery({ searchValue, activeCategory }) {
     };
 
     const handleSelectTemplate = (template) => {
+        // Check if user is authenticated
+        if (!user) {
+            setShowLoginPrompt(true);
+            return;
+        }
+
         setSelectedTemplate(template);
         setIsModalOpen(true);
     };
@@ -1202,6 +1211,80 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
                     />
                 )
             }
+
+            {/* Login Prompt Modal */}
+            {showLoginPrompt && (
+                <div
+                    className="modal-overlay"
+                    onClick={() => setShowLoginPrompt(false)}
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'rgba(0, 0, 0, 0.7)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10000
+                    }}
+                >
+                    <div
+                        className="login-prompt-modal"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            background: 'var(--bg-primary)',
+                            borderRadius: '16px',
+                            padding: '32px',
+                            maxWidth: '400px',
+                            textAlign: 'center',
+                            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+                        }}
+                    >
+                        <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🔒</div>
+                        <h3 style={{ fontSize: '1.5rem', marginBottom: '12px', color: 'var(--text-primary)' }}>
+                            Đăng nhập để sử dụng
+                        </h3>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>
+                            Bạn cần đăng nhập để tạo design từ template này
+                        </p>
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                            <button
+                                onClick={() => navigate('/login')}
+                                style={{
+                                    padding: '12px 24px',
+                                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: 'white',
+                                    cursor: 'pointer',
+                                    fontSize: '1rem',
+                                    fontWeight: '600',
+                                    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)'
+                                }}
+                            >
+                                Đăng nhập
+                            </button>
+                            <button
+                                onClick={() => navigate('/register')}
+                                style={{
+                                    padding: '12px 24px',
+                                    background: 'transparent',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '8px',
+                                    color: 'var(--text-primary)',
+                                    cursor: 'pointer',
+                                    fontSize: '1rem',
+                                    fontWeight: '600'
+                                }}
+                            >
+                                Đăng ký
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }

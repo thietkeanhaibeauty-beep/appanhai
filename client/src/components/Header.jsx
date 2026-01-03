@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import UserMenu from './UserMenu';
 import ProfileModal from './ProfileModal';
 
 export default function Header({ searchValue, onSearchChange, credits = 90, onToggleMenu = () => { }, user, onSignOut }) {
+    const navigate = useNavigate();
     const [isDarkMode, setIsDarkMode] = useState(() => {
         const saved = localStorage.getItem('theme');
         if (saved) return saved === 'dark';
@@ -69,9 +71,47 @@ export default function Header({ searchValue, onSearchChange, credits = 90, onTo
                         )}
                     </button>
 
-                    {/* User Menu */}
-                    {user && (
+                    {/* User Menu or Auth Buttons */}
+                    {user ? (
                         <UserMenu onOpenProfile={() => setIsProfileOpen(true)} />
+                    ) : (
+                        <div className="auth-buttons">
+                            <button
+                                className="login-btn"
+                                onClick={() => navigate('/login')}
+                                style={{
+                                    padding: '8px 20px',
+                                    background: 'transparent',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '8px',
+                                    color: 'var(--text-primary)',
+                                    cursor: 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: '500',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                Đăng nhập
+                            </button>
+                            <button
+                                className="register-btn"
+                                onClick={() => navigate('/register')}
+                                style={{
+                                    padding: '8px 20px',
+                                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: 'white',
+                                    cursor: 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: '500',
+                                    boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                Đăng ký
+                            </button>
+                        </div>
                     )}
                 </div>
             </header>

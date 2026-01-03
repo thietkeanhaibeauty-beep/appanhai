@@ -130,11 +130,44 @@ export const AuthProvider = ({ children }) => {
     };
 
     const signUp = async (email, password) => {
-        const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-        });
-        return { data, error };
+        console.log('🔵 [AuthContext] signUp called with email:', email);
+        console.log('🔵 [AuthContext] Supabase URL:', supabase.supabaseUrl);
+
+        try {
+            const { data, error } = await supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                    // Email confirmation redirect - use production domain
+                    emailRedirectTo: 'https://anh.nguyenanhtuan.vn/',
+                    data: {
+                        // Additional user metadata if needed
+                    }
+                }
+            });
+
+            if (error) {
+                console.error('❌ [AuthContext] Supabase signUp error:', {
+                    message: error.message,
+                    status: error.status,
+                    name: error.name,
+                    __isAuthError: error.__isAuthError,
+                    fullError: error
+                });
+            } else {
+                console.log('✅ [AuthContext] Supabase signUp success:', {
+                    userId: data?.user?.id,
+                    userEmail: data?.user?.email,
+                    hasSession: !!data?.session,
+                    sessionAccessToken: data?.session?.access_token ? 'present' : 'missing'
+                });
+            }
+
+            return { data, error };
+        } catch (err) {
+            console.error('💥 [AuthContext] signUp exception:', err);
+            return { data: null, error: err };
+        }
     };
 
     const signOut = async () => {
@@ -142,13 +175,36 @@ export const AuthProvider = ({ children }) => {
         return { error };
     };
 
+    const verifyOtp = async (email, token, type = 'signup') => {
+        console.log('🔵 [AuthContext] verifyOtp called:', { email, type });
+
+        try {
+            const { data, error } = await supabase.auth.verifyOtp({
+                email,
+                token,
+                type
+            });
+
+            if (error) {
+                console.error('❌ [AuthContext] OTP verification error:', error);
+            } else {
+                console.log('✅ [AuthContext] OTP verified successfully');
+            }
+
+            return { data, error };
+        } catch (err) {
+            console.error('💥 [AuthContext] verifyOtp exception:', err);
+            return { data: null, error: err };
+        }
+    };
+
     const value = {
         user,
-        loading,
+        supabase,
         signIn,
         signUp,
         signOut,
-        isAuthenticated: !!user,
+        verifyOtp,
     };
 
     return (

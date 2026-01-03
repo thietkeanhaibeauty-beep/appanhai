@@ -12,6 +12,7 @@ import ApiKeysPage from './pages/ApiKeysPage';
 import MigrationTool from './components/MigrationTool';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import VerifyEmail from './pages/VerifyEmail'; // Added this import
 import Pricing from './pages/Pricing';
 
 // Protected Route component
@@ -45,6 +46,7 @@ function AppRoutes() {
       {/* Public routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/verify" element={<VerifyEmail />} />
       <Route path="/pricing" element={<Pricing />} />
 
       {/* Template Manager - Protected */}
@@ -63,53 +65,65 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
 
-      {/* Main Layout with Sidebar - Protected */}
+      {/* Main Layout with Sidebar - Now supports both public and protected routes */}
       <Route path="/*" element={
-        <ProtectedRoute>
-          <div className="app-layout">
-            {/* Mobile Overlay */}
-            <div
-              className={`sidebar-overlay ${isMobileMenuOpen ? 'visible' : ''}`}
-              onClick={() => setIsMobileMenuOpen(false)}
+        <div className="app-layout">
+          {/* Mobile Overlay */}
+          <div
+            className={`sidebar - overlay ${isMobileMenuOpen ? 'visible' : ''} `}
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+
+          {/* Sidebar */}
+          <Sidebar
+            activeCategory={activeCategory}
+            onCategoryChange={setActiveCategory}
+            isOpen={isMobileMenuOpen}
+            onClose={() => setIsMobileMenuOpen(false)}
+          />
+
+          {/* Main Content */}
+          <div className="main-content">
+            <Header
+              searchValue={searchValue}
+              onSearchChange={setSearchValue}
+              credits={90}
+              onToggleMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              user={user}
+              onSignOut={signOut}
             />
 
-            {/* Sidebar */}
-            <Sidebar
-              activeCategory={activeCategory}
-              onCategoryChange={setActiveCategory}
-              isOpen={isMobileMenuOpen}
-              onClose={() => setIsMobileMenuOpen(false)}
-            />
-
-            {/* Main Content */}
-            <div className="main-content">
-              <Header
-                searchValue={searchValue}
-                onSearchChange={setSearchValue}
-                credits={90}
-                onToggleMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                user={user}
-                onSignOut={signOut}
-              />
-
-              <main className="main-body">
-                <SubscriptionBanner />
-                <Routes>
-                  <Route path="/" element={
-                    <Gallery
-                      searchValue={searchValue}
-                      activeCategory={activeCategory}
-                    />
-                  }
+            <main className="main-body">
+              <SubscriptionBanner />
+              <Routes>
+                {/* Public route - Gallery accessible without login */}
+                <Route path="/" element={
+                  <Gallery
+                    searchValue={searchValue}
+                    activeCategory={activeCategory}
                   />
-                  <Route path="/my-designs" element={<MyDesigns />} />
-                  <Route path="/api-keys" element={<ApiKeysPage />} />
-                  <Route path="/editor/:id" element={<Editor />} />
-                </Routes>
-              </main>
-            </div>
+                } />
+
+                {/* Protected routes - require authentication */}
+                <Route path="/my-designs" element={
+                  <ProtectedRoute>
+                    <MyDesigns />
+                  </ProtectedRoute>
+                } />
+                <Route path="/api-keys" element={
+                  <ProtectedRoute>
+                    <ApiKeysPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/editor/:id" element={
+                  <ProtectedRoute>
+                    <Editor />
+                  </ProtectedRoute>
+                } />
+              </Routes>
+            </main>
           </div>
-        </ProtectedRoute>
+        </div>
       } />
     </Routes>
   );

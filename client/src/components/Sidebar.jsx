@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { categoriesApi } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { useFeatures } from '../hooks/useFeatures';
 import { useUserRole } from '../hooks/useUserRole';
 
@@ -84,8 +85,18 @@ const Icons = {
 export default function Sidebar({ activeCategory, onCategoryChange, isOpen, onClose }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { hasFeature } = useFeatures();
   const { isAdmin } = useUserRole();
+
+  // Filter menu items based on auth status
+  const visibleMenuItems = menuItems.filter(item => {
+    // Hide "My Designs" if user is not logged in
+    if (item.id === 'my-designs' && !user) {
+      return false;
+    }
+    return true;
+  });
 
   // Handle category click - navigate to Gallery if on My Designs page
   const handleCategoryClick = (categoryId) => {
@@ -173,7 +184,7 @@ export default function Sidebar({ activeCategory, onCategoryChange, isOpen, onCl
       <div className="sidebar-section">
         <span className="section-label">MENU</span>
         <nav className="menu-list">
-          {menuItems.map((item) => (
+          {visibleMenuItems.map((item) => (
             <Link
               key={item.id}
               to={item.path}
