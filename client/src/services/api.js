@@ -300,13 +300,40 @@ function safeJsonParse(val) {
     return val;
 }
 
-// Legacy function - no longer needed since images are stored as URLs
+// Convert URLs to displayable format, especially Google Drive links
 export function getImageUrl(path) {
-    // If it's already a full URL, return as-is
-    if (path && (path.startsWith('http://') || path.startsWith('https://'))) {
+    if (!path) return path;
+
+    // If it's already a full URL
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+        // Check if it's a Google Drive link that needs conversion
+        if (path.includes('drive.google.com')) {
+            // Extract file ID from various Google Drive URL formats
+            let fileId = null;
+
+            // Format: https://drive.google.com/file/d/FILE_ID/view
+            const fileMatch = path.match(/\/file\/d\/([^\/]+)/);
+            if (fileMatch) {
+                fileId = fileMatch[1];
+            }
+
+            // Format: https://drive.google.com/open?id=FILE_ID
+            const openMatch = path.match(/[?&]id=([^&]+)/);
+            if (openMatch) {
+                fileId = openMatch[1];
+            }
+
+            // If we found a file ID, convert to direct link
+            if (fileId) {
+                return `https://drive.google.com/uc?export=view&id=${fileId}`;
+            }
+        }
+
+        // Return other URLs as-is
         return path;
     }
-    // Fallback - shouldn't happen with new system
+
+    // Fallback for legacy paths
     return path;
 }
 
