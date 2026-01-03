@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { templatesApi, categoriesApi, getImageUrl } from '../services/api';
+import { parseBulkTemplateCSV, parseBulkTemplateXLSX, readFileAsText, readFileAsBuffer } from '../utils/csvParser';
 
 export default function TemplateManager() {
     const navigate = useNavigate();
@@ -32,7 +33,16 @@ export default function TemplateManager() {
     const [apiStatus, setApiStatus] = useState({ checking: false, result: null });
 
     // === NEW: Tab and Management States ===
-    const [activeTab, setActiveTab] = useState('create'); // 'create', 'manage', 'categories'
+    const [activeTab, setActiveTab] = useState('create'); // 'create', 'manage', 'categories', 'import'
+
+    // === Bulk Import States ===
+    const [importData, setImportData] = useState([]);
+    const [isImporting, setIsImporting] = useState(false);
+    const [importProgress, setImportProgress] = useState({ current: 0, total: 0, success: 0, failed: 0 });
+    const [importResults, setImportResults] = useState([]);
+    const [sheetsUrl, setSheetsUrl] = useState('');
+    const [isFetchingSheets, setIsFetchingSheets] = useState(false);
+    const importFileRef = useRef(null);
     const [savedTemplates, setSavedTemplates] = useState([]);
     const [editingTemplate, setEditingTemplate] = useState(null);
     const [confirmDelete, setConfirmDelete] = useState(null);
@@ -739,7 +749,7 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                     </svg>
                     Quay lại
                 </button>
-                <h1 className="tm-title">Tạo Template Mới</h1>
+                <h1 className="tm-title">Template</h1>
                 <button className="settings-btn" onClick={() => setShowSettings(true)}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -760,6 +770,9 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                 </button>
                 <button className={`tm-tab ${activeTab === 'categories' ? 'active' : ''}`} onClick={() => setActiveTab('categories')}>
                     🏷️ Danh mục ({categories.length})
+                </button>
+                <button className={`tm-tab ${activeTab === 'import' ? 'active' : ''}`} onClick={() => setActiveTab('import')}>
+                    📥 Import CSV
                 </button>
             </div>
 
@@ -1157,6 +1170,274 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                     </div>
                 )
             }
+
+            {/* === Tab: Import CSV === */}
+            {activeTab === 'import' && (
+                <div className="tm-import-section" style={{ padding: '20px' }}>
+                    <div className="import-header" style={{ marginBottom: '20px' }}>
+                        <h2>📥 Import Templates</h2>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                            Dán link Google Sheets hoặc tải file CSV (cột: Link Drive, Prompt, Tên, Mô tả, Danh mục)
+                        </p>
+                    </div>
+
+                    {/* Google Sheets URL Input */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ fontWeight: 500, marginBottom: '8px', display: 'block' }}>🔗 Dán link Google Sheets:</label>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <input
+                                type="text"
+                                placeholder="https://docs.google.com/spreadsheets/d/..."
+                                value={sheetsUrl}
+                                onChange={(e) => setSheetsUrl(e.target.value)}
+                                style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.95rem' }}
+                            />
+                            <button
+                                onClick={async () => {
+                                    if (!sheetsUrl.includes('docs.google.com/spreadsheets')) {
+                                        alert('Vui lòng dán link Google Sheets hợp lệ!');
+                                        return;
+                                    }
+                                    setIsFetchingSheets(true);
+                                    try {
+                                        // Extract sheet ID from URL
+                                        const match = sheetsUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+                                        if (!match) throw new Error('Không tìm thấy Sheet ID');
+                                        const sheetId = match[1];
+
+                                        // Fetch as CSV from Google Sheets public export
+                                        const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+                                        const response = await fetch(csvUrl);
+                                        if (!response.ok) throw new Error('Không thể tải sheet. Hãy đảm bảo sheet đã được chia sẻ công khai!');
+
+                                        const text = await response.text();
+                                        const data = parseBulkTemplateCSV(text);
+                                        setImportData(data);
+                                        setImportResults([]);
+                                        setImportProgress({ current: 0, total: data.length, success: 0, failed: 0 });
+                                    } catch (error) {
+                                        alert('Lỗi: ' + error.message + '\n\nĐảm bảo Google Sheet đã được Share → Anyone with the link');
+                                    } finally {
+                                        setIsFetchingSheets(false);
+                                    }
+                                }}
+                                disabled={isFetchingSheets || !sheetsUrl}
+                                style={{ padding: '12px 24px', background: 'linear-gradient(135deg, #3b82f6, #6366f1)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: isFetchingSheets ? 'not-allowed' : 'pointer' }}
+                            >
+                                {isFetchingSheets ? '⏳ Đang tải...' : '📥 Tải dữ liệu'}
+                            </button>
+                        </div>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                            ⚠️ Sheet phải được Share: Anyone with the link can view
+                        </p>
+                    </div>
+
+                    <div style={{ textAlign: 'center', margin: '15px 0', color: 'var(--text-secondary)' }}>— hoặc —</div>
+
+                    {/* File Upload Zone */}
+                    <div
+                        className="import-upload-zone"
+                        onClick={() => importFileRef.current?.click()}
+                        style={{
+                            border: '2px dashed var(--border-color)',
+                            borderRadius: '12px',
+                            padding: '40px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                            background: 'var(--bg-secondary)',
+                            marginBottom: '20px'
+                        }}
+                    >
+                        <input
+                            type="file"
+                            ref={importFileRef}
+                            accept=".csv,.txt,.xlsx,.xls"
+                            style={{ display: 'none' }}
+                            onChange={async (e) => {
+                                const file = e.target.files[0];
+                                if (file) {
+                                    try {
+                                        let data;
+                                        if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                                            // Parse XLSX
+                                            const buffer = await readFileAsBuffer(file);
+                                            data = parseBulkTemplateXLSX(buffer);
+                                        } else {
+                                            // Parse CSV
+                                            const text = await readFileAsText(file);
+                                            data = parseBulkTemplateCSV(text);
+                                        }
+                                        setImportData(data);
+                                        setImportResults([]);
+                                        setImportProgress({ current: 0, total: data.length, success: 0, failed: 0 });
+                                    } catch (error) {
+                                        alert('Lỗi đọc file: ' + error.message);
+                                    }
+                                }
+                            }}
+                        />
+                        <div style={{ fontSize: '3rem', marginBottom: '10px' }}>📄</div>
+                        <p style={{ fontSize: '1.1rem', fontWeight: 500 }}>Click để chọn file CSV hoặc Excel</p>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                            Hỗ trợ file .csv, .xlsx, .xls
+                        </p>
+                    </div>
+
+                    {/* Preview Table */}
+                    {importData.length > 0 && !isImporting && (
+                        <div className="import-preview" style={{ marginBottom: '20px' }}>
+                            <h3 style={{ marginBottom: '10px' }}>Xem trước ({importData.length} templates)</h3>
+                            <div style={{ maxHeight: '300px', overflow: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                    <thead>
+                                        <tr style={{ background: 'var(--bg-tertiary)', position: 'sticky', top: 0 }}>
+                                            <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>#</th>
+                                            <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>Tên</th>
+                                            <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>Danh mục</th>
+                                            <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>Link</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {importData.slice(0, 20).map((row, i) => (
+                                            <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                                <td style={{ padding: '8px' }}>{row.rowNumber}</td>
+                                                <td style={{ padding: '8px' }}>{row.title}</td>
+                                                <td style={{ padding: '8px' }}>{row.categoryName}</td>
+                                                <td style={{ padding: '8px', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {row.image?.substring(0, 40)}...
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {importData.length > 20 && (
+                                            <tr>
+                                                <td colSpan={4} style={{ padding: '8px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                                                    ... và {importData.length - 20} templates khác
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <button
+                                onClick={async () => {
+                                    setIsImporting(true);
+                                    const results = [];
+                                    let successCount = 0;
+                                    let failedCount = 0;
+
+                                    for (let i = 0; i < importData.length; i++) {
+                                        const row = importData[i];
+                                        setImportProgress({ current: i + 1, total: importData.length, success: successCount, failed: failedCount });
+                                        try {
+                                            let catId = row.categoryName;
+
+                                            if (serverOnline) {
+                                                // Online: find or create category via API
+                                                const cat = await categoriesApi.findOrCreate(row.categoryName);
+                                                catId = cat.id;
+                                            } else {
+                                                // Offline: check local categories
+                                                const localCats = JSON.parse(localStorage.getItem('custom_categories') || '[]');
+                                                let found = localCats.find(c => c.name.toLowerCase() === row.categoryName.toLowerCase());
+                                                if (!found) {
+                                                    found = { id: `cat_${Date.now()}_${i}`, name: row.categoryName, icon: '📁' };
+                                                    localCats.push(found);
+                                                    localStorage.setItem('custom_categories', JSON.stringify(localCats));
+                                                }
+                                                catId = found.id;
+                                            }
+
+                                            const templateData = {
+                                                title: row.title,
+                                                description: row.description || '',
+                                                category: catId,
+                                                image: row.image,
+                                                stylePrompt: row.stylePrompt || '',
+                                                textSlots: [],
+                                                imageSlots: [],
+                                                colorSlots: [],
+                                                textZones: []
+                                            };
+
+                                            if (serverOnline) {
+                                                await templatesApi.create(templateData);
+                                            } else {
+                                                // Save to localStorage
+                                                const localTemplates = JSON.parse(localStorage.getItem('custom_templates') || '[]');
+                                                localTemplates.push({ id: `tpl_${Date.now()}_${i}`, ...templateData });
+                                                localStorage.setItem('custom_templates', JSON.stringify(localTemplates));
+                                            }
+
+                                            successCount++;
+                                            results.push({ row: row.rowNumber, status: 'success', title: row.title });
+                                        } catch (error) {
+                                            failedCount++;
+                                            results.push({ row: row.rowNumber, status: 'error', title: row.title, error: error.message });
+                                        }
+                                    }
+
+                                    setImportProgress({ current: importData.length, total: importData.length, success: successCount, failed: failedCount });
+                                    setImportResults(results);
+                                    setIsImporting(false);
+
+                                    // Reload templates
+                                    if (serverOnline) {
+                                        const templates = await templatesApi.getAll();
+                                        setSavedTemplates(templates.map(t => ({ ...t, image: t.image_path ? getImageUrl(t.image_path) : t.image })));
+                                        const allCats = await categoriesApi.getAll();
+                                        setCategories(allCats);
+                                    } else {
+                                        // Load from localStorage
+                                        const localTemplates = JSON.parse(localStorage.getItem('custom_templates') || '[]');
+                                        setSavedTemplates(localTemplates);
+                                        const localCats = JSON.parse(localStorage.getItem('custom_categories') || '[]');
+                                        if (localCats.length > 0) setCategories(localCats);
+                                    }
+
+                                    window.dispatchEvent(new Event('categoriesUpdated'));
+                                    alert(`✅ Import hoàn tất!\n${successCount} thành công, ${failedCount} lỗi${!serverOnline ? '\n\n⚠️ Đã lưu offline vào localStorage' : ''}`);
+                                }}
+                                disabled={isImporting}
+                                style={{ marginTop: '15px', padding: '12px 30px', background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '1rem', fontWeight: 600, cursor: isImporting ? 'not-allowed' : 'pointer' }}
+                            >
+                                {isImporting ? '⏳ Đang import...' : `🚀 Import ${importData.length} Templates`}
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Import Progress */}
+                    {isImporting && (
+                        <div className="import-progress" style={{ marginBottom: '20px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                <span>Đang import: {importProgress.current}/{importProgress.total}</span>
+                                <span style={{ color: '#22c55e' }}>✓ {importProgress.success}</span>
+                                {importProgress.failed > 0 && <span style={{ color: '#ef4444' }}>✗ {importProgress.failed}</span>}
+                            </div>
+                            <div style={{ height: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${(importProgress.current / importProgress.total) * 100}%`, background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)', transition: 'width 0.3s' }} />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Import Results */}
+                    {importResults.length > 0 && !isImporting && (
+                        <div className="import-results">
+                            <h3 style={{ marginBottom: '10px' }}>Kết quả Import</h3>
+                            <div style={{ maxHeight: '200px', overflow: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
+                                {importResults.map((r, i) => (
+                                    <div key={i} style={{ padding: '6px 10px', borderRadius: '4px', marginBottom: '4px', background: r.status === 'success' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: r.status === 'success' ? '#22c55e' : '#ef4444', fontSize: '0.85rem' }}>
+                                        {r.status === 'success' ? '✓' : '✗'} Dòng {r.row}: {r.title} {r.error && `- ${r.error}`}
+                                    </div>
+                                ))}
+                            </div>
+                            <button onClick={() => { setImportData([]); setImportResults([]); setImportProgress({ current: 0, total: 0, success: 0, failed: 0 }); }} style={{ marginTop: '15px', padding: '10px 20px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer' }}>
+                                🔄 Import file khác
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* === Update Bar for Edit Mode === */}
             {

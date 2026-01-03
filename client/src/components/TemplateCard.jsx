@@ -11,9 +11,10 @@ export default function TemplateCard({ template, onSelect, onToggleFavorite, isF
 
     return (
         <div
-            className="template-card"
+            className="template-card cursor-pointer"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
+            onClick={() => onSelect(template)}
         >
             {/* Image */}
             <div className="card-image">

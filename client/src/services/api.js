@@ -68,9 +68,9 @@ export const categoriesApi = {
         await initNocoDB();
         if (!TABLE_IDS.Categories) return [];
         const result = await nocoApiCall(`/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Categories}`);
-        // Transform to expected format
+        // Transform to expected format - use RecordId as primary ID
         return (result.list || []).map(cat => ({
-            id: cat.Id || cat.id,
+            id: cat.RecordId || cat.Id || cat.id,
             name: cat.Name || cat.name,
             icon: cat.Icon || cat.icon || '📁'
         }));
@@ -103,6 +103,27 @@ export const categoriesApi = {
         return nocoApiCall(`/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Categories}/${id}`, {
             method: 'DELETE'
         });
+    },
+
+    // Find category by name (case-insensitive)
+    findByName: async (name) => {
+        const all = await categoriesApi.getAll();
+        return all.find(c => c.name.toLowerCase().trim() === name.toLowerCase().trim());
+    },
+
+    // Find existing category or create new one
+    findOrCreate: async (name) => {
+        const existing = await categoriesApi.findByName(name);
+        if (existing) {
+            return existing;
+        }
+        // Create new category
+        const created = await categoriesApi.create({ name: name.trim(), icon: '📁' });
+        return {
+            id: created.Id || created.id,
+            name: name.trim(),
+            icon: '📁'
+        };
     }
 };
 

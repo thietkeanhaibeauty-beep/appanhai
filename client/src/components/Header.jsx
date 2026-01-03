@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-export default function Header({ searchValue, onSearchChange, credits = 90 }) {
+export default function Header({ searchValue, onSearchChange, credits = 90, onToggleMenu = () => { } }) {
     const [isDarkMode, setIsDarkMode] = useState(() => {
         // Check localStorage first, default to light mode
         const saved = localStorage.getItem('theme');
@@ -27,6 +27,16 @@ export default function Header({ searchValue, onSearchChange, credits = 90 }) {
 
     return (
         <header className="main-header">
+            {/* Mobile Menu Button */}
+            <button
+                className="mobile-menu-btn"
+                onClick={onToggleMenu}
+            >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+            </button>
+
             {/* Search Bar */}
             <div className="search-container">
                 <svg className="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">

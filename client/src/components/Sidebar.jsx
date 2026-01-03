@@ -72,7 +72,7 @@ const Icons = {
   ),
 };
 
-export default function Sidebar({ activeCategory, onCategoryChange }) {
+export default function Sidebar({ activeCategory, onCategoryChange, isOpen, onClose }) {
   const location = useLocation();
 
   // Load categories from Backend API with localStorage fallback
@@ -129,7 +129,7 @@ export default function Sidebar({ activeCategory, onCategoryChange }) {
   const allCategories = [...FIXED_CATEGORIES, ...dynamicCategories];
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
       {/* Logo */}
       <div className="sidebar-logo">
         <div className="logo-icon">
@@ -171,27 +171,15 @@ export default function Sidebar({ activeCategory, onCategoryChange }) {
           {allCategories.map((cat) => (
             <button
               key={cat.id}
-              onClick={() => onCategoryChange(cat.id)}
-              className={`menu-item ${activeCategory === cat.id ? 'active' : ''}`}
+              onClick={() => onCategoryChange(String(cat.id))}
+              className={`menu-item ${String(activeCategory) === String(cat.id) ? 'active' : ''}`}
             >
-              {cat.hasEmoji ? (
-                <span className="emoji-icon">{cat.emoji}</span>
-              ) : (
-                Icons[cat.icon] || Icons.image
-              )}
-              <span>{cat.hasEmoji ? cat.name : cat.label}</span>
+              <span>{cat.name || cat.label}</span>
             </button>
           ))}
         </nav>
       </div>
 
-      {/* Bottom Button */}
-      <div className="sidebar-footer">
-        <Link to="/admin" className="manage-btn">
-          {Icons.settings}
-          <span>Quản lý Template</span>
-        </Link>
-      </div>
     </aside>
   );
 }

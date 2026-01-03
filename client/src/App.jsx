@@ -11,12 +11,20 @@ import MigrationTool from './components/MigrationTool';
 function App() {
   const [searchValue, setSearchValue] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Close mobile menu when route changes
+  const [prevLoc, setPrevLoc] = useState(window.location.pathname);
+  if (prevLoc !== window.location.pathname) {
+    setIsMobileMenuOpen(false);
+    setPrevLoc(window.location.pathname);
+  }
 
   return (
     <Router>
       <Routes>
         {/* Template Manager - Full page without sidebar */}
-        <Route path="/admin" element={<TemplateManager />} />
+        <Route path="/template" element={<TemplateManager />} />
 
         {/* Migration Tool - Full page */}
         <Route path="/migrate" element={<div className="app-layout" style={{ background: '#0a0a1a', minHeight: '100vh' }}><MigrationTool /></div>} />
@@ -24,10 +32,18 @@ function App() {
         {/* Main Layout with Sidebar */}
         <Route path="/*" element={
           <div className="app-layout">
+            {/* Mobile Overlay */}
+            <div
+              className={`sidebar-overlay ${isMobileMenuOpen ? 'visible' : ''}`}
+              onClick={() => setIsMobileMenuOpen(false)}
+            />
+
             {/* Sidebar */}
             <Sidebar
               activeCategory={activeCategory}
               onCategoryChange={setActiveCategory}
+              isOpen={isMobileMenuOpen}
+              onClose={() => setIsMobileMenuOpen(false)}
             />
 
             {/* Main Content */}
@@ -36,6 +52,7 @@ function App() {
                 searchValue={searchValue}
                 onSearchChange={setSearchValue}
                 credits={90}
+                onToggleMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               />
 
               <main className="main-body">

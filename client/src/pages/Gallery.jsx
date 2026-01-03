@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import TemplateCard from '../components/TemplateCard';
 import TemplateModal from '../components/TemplateModal';
 import CanvasPreview from '../components/CanvasPreview';
@@ -8,6 +9,7 @@ import { templatesApi, designsApi, getImageUrl } from '../services/api';
 // No more mock templates - only load from NocoDB server
 
 export default function Gallery({ searchValue, activeCategory }) {
+    const navigate = useNavigate();
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [allTemplates, setAllTemplates] = useState([]);
@@ -1132,7 +1134,7 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                     <button
                         className="create-template-btn"
-                        onClick={() => window.location.href = '/templates'}
+                        onClick={() => navigate('/template')}
                         title="Tạo Template Mới"
                         style={{
                             background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
@@ -1173,7 +1175,7 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
             <ApiKeySettings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
             {/* Templates Grid */}
-            <div className="templates-grid">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-20">
                 {filteredTemplates.map((template) => (
                     <TemplateCard
                         key={template.id}
