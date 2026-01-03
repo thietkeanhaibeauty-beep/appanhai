@@ -1,0 +1,60 @@
+// NocoDB Configuration
+export const NOCODB_CONFIG = {
+  BASE_URL: 'https://db.hpb.edu.vn',
+  API_TOKEN: 'dmyRQR-_vT7PcywKL4tPGG_P69gNliv6TD1K-bGp',
+
+  // Table IDs from NocoDB Dashboard URLs
+  TABLES: {
+    OPENAI_SETTINGS: 'mlyqdigfn8tmt2o',
+    FACEBOOK_AD_ACCOUNTS: 'm85j7noglexpeh3',
+    FACEBOOK_PAGES: 'mtstya0v6m16w25',
+    CAMPAIGN_LABELS: 'm7jnf4y29tmv3lj',
+    CAMPAIGN_LABEL_ASSIGNMENTS: 'mms9psw2gi1whg8',
+    AUTOMATED_RULES: 'myjph53paqimfhx',
+    AUTOMATION_RULE_EXECUTION_LOGS: 'muj0h3yw2xldoxa',
+    FACEBOOK_INSIGHTS: 'muvgnsuq5er5wah',
+    FACEBOOK_INSIGHTS_HISTORY: 'm0jwnv0a80j0ggc', // ✅ Historical insights (read-only)
+    SALES_REPORTS: 'm8r1aghugm2tdr9',
+    FACEBOOK_CAMPAIGNS: 'mbhv1uczc3v22t2',
+    FACEBOOK_ADSETS: 'multxyinqkt1ehc',
+    FACEBOOK_ADS: 'mtgs0b3o6lmedt3',
+    // Feature Flags & User Roles
+    USER_ROLES: 'mgegupik7zihccr',
+    FEATURE_FLAGS: 'm4ejg5bliwqrxkt', // ✅ Updated from NocoDB
+    ROLE_FEATURE_FLAGS: 'morejiwkn9siqa4', // ✅ Updated
+    USER_FEATURE_OVERRIDES: 'md44f6siuv37js4', // ✅ Updated
+    // SaaS Infrastructure (PHASE 1)
+    PROFILES: 'm9yo4dwz1fj2hsa',
+    USER_SUBSCRIPTIONS: 'mniwyq7d5iu3w2j',
+    PAYMENT_TRANSACTIONS: 'mga4jw0x3rbbimt',
+    PAYMENT_PACKAGES: 'm2xhdz9d0akq1nf',
+    PAYMENT_SETTINGS: 'melitl6whnc6hgq',
+    USAGE_LOGS: 'mx3r2e9u6q5jebf',
+    // User Sync Settings
+    USER_SYNC_SETTINGS: 'mi7wjupweoklj16',
+    // Facebook Personal Tokens (Nick cá nhân)
+    FACEBOOK_PERSONAL_TOKENS: 'mj62nt8n7rotk77',
+    // Aggregated Insights (NocoDB-based)
+    TODAY_INSIGHTS: 'PLACEHOLDER', // Run create-today-insights-table to get ID
+    WEEKLY_INSIGHTS: 'PLACEHOLDER', // Run create-weekly-insights-table to get ID
+    MONTHLY_INSIGHTS: 'PLACEHOLDER', // Run create-monthly-insights-table to get ID
+    // Auto-Sync Isolated Tables
+    SYNC_LOGS: 'm9j1kt8ml62g5r5',
+    FACEBOOK_INSIGHTS_AUTO: 'mtw8d60ae1okm2p',
+    // Notifications
+    NOTIFICATION_CONFIGS: 'mp7cztnpb36dpvn', // notification_settings
+    NOTIFICATIONS: 'mdww4qdlxhoqn31', // notifications
+  }
+} as const;
+
+// Common headers for NocoDB API calls
+export const getNocoDBHeaders = () => ({
+  'xc-token': NOCODB_CONFIG.API_TOKEN,
+  'Content-Type': 'application/json',
+});
+
+// Build NocoDB API URL
+export const getNocoDBUrl = (tableId: string, recordId?: string) => {
+  const baseUrl = `${NOCODB_CONFIG.BASE_URL}/api/v2/tables/${tableId}/records`;
+  return recordId ? `${baseUrl}/${recordId}` : baseUrl;
+};

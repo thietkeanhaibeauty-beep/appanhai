@@ -1,0 +1,1963 @@
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'; // REMOVED: Unused and causing hang?
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+// Supabase client removed (unused)
+// const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+// const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+// const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Normalize URL to remove trailing slashes
+const normalizeUrl = (url: string) => url?.replace(/\/+$/, '') || '';
+const NOCODB_API_URL = normalizeUrl('https://accompanying-frank-pdas-demo.trycloudflare.com');
+const NOCODB_API_TOKEN = "8m1N0qDkakGPT_Xq4MXBaA2gw5hWrTAkZVKJ3Wd_";
+
+const TABLES = {
+  CAMPAIGN_LABELS: "m1fofevviku4xne", // ✅ UPDATED 2025-11-26 (New Table with Id)
+  AUTOMATED_RULES: "m985xb6ql61r1zm", // ✅ UPDATED 2025-11-26
+  FACEBOOK_AD_ACCOUNTS: "mp0at8j7vlalgoo",
+  FACEBOOK_INSIGHTS: "m8olbfgr5i1rio0",
+  CAMPAIGN_LABEL_ASSIGNMENTS: "mqmuyddzible6uk", // ✅ UPDATED 2025-11-26
+  AUTOMATION_RULE_EXECUTION_LOGS: "mpy6uv4q64yek4i", // ✅ UPDATED 2025-11-26
+  SALES_REPORTS: "m8r1aghugm2tdr9",
+  PENDING_REVERTS: "mms83ggj1yps8sr", // ✅ UPDATED 2025-11-26
+};
+
+const getNocoDBHeaders = () => ({
+  "xc-token": NOCODB_API_TOKEN,
+  "Content-Type": "application/json",
+});
+
+interface RuleCondition {
+  metric: string;
+  operator: string;
+  value: number;
+}
+
+interface RuleAction {
+  type: string;
+  value?: number | string;
+  budgetMode?: "percentage" | "absolute";
+  useSchedule?: boolean;
+  executeAt?: string;
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const { ruleId, userId, manualRun = false, dryRun = false } = await req.json();
+
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`🚀 [AUTOMATION] Starting execution`);
+    console.log(`   Rule ID: ${ruleId}`);
+    console.log(`   User ID: ${userId}`);
+    console.log(`   Manual Run: ${manualRun}`);
+    console.log(`   Dry Run Override: ${dryRun}`);
+    console.log(`   Timestamp: ${new Date().toISOString()}`);
+    console.log(`${'='.repeat(80)}\n`);
+
+
+    // 🔒 Lock the rule IMMEDIATELY to prevent race conditions
+    console.log(`🔒 [LOCK] Locking rule ${ruleId}...`);
+    const lockResponse = await fetchWithTimeout(
+      `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATED_RULES}/records`,
+      {
+        method: 'PATCH',
+        headers: getNocoDBHeaders(),
+        body: JSON.stringify({
+          Id: ruleId,
+          processing_status: 'processing',
+          processing_started_at: new Date().toISOString(),
+          last_run_at: new Date().toISOString(),
+        }),
+      }
+    );
+
+    if (!lockResponse.ok) {
+      console.error(`❌ [LOCK] Failed to lock rule ${ruleId}:`, lockResponse.status);
+      throw new Error(`Failed to lock rule: ${lockResponse.status}`);
+    }
+
+    console.log(`✅ [LOCK] Rule ${ruleId} locked successfully`);
+
+    // Wrap entire processing in try-finally to ensure unlock
+    try {
+
+      // Get rule details from NocoDB - Use Id (integer) not id (UUID)
+      // IMPORTANT: NocoDB column is "Id" with capital I, not "id"
+      const whereClause = encodeURIComponent(`(Id,eq,${ruleId})`);
+      const ruleUrl = `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATED_RULES}/records?where=${whereClause}`;
+
+      console.log(`[execute-automation-rule] Fetching rule with Id: ${ruleId} from: ${ruleUrl}`);
+
+      const ruleResponse = await fetchWithTimeout(ruleUrl, {
+        method: "GET",
+        headers: getNocoDBHeaders(),
+      });
+
+      if (!ruleResponse.ok) {
+        console.error("[execute-automation-rule] Failed to fetch rule:", ruleResponse.status);
+        const errorText = await ruleResponse.text();
+        console.error("[execute-automation-rule] Error response:", errorText);
+        return new Response(JSON.stringify({ error: "Rule not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const ruleData = await ruleResponse.json();
+      console.log(`[execute-automation-rule] NocoDB response:`, {
+        totalRules: ruleData.list?.length || 0,
+        foundRule: !!ruleData.list?.[0]
+      });
+
+      const rawRule = ruleData.list?.[0];
+
+      // ✅ Debug: Log raw target_labels from NocoDB
+      console.log('[execute-automation-rule] 🔍 Raw rule from NocoDB:', {
+        Id: rawRule?.Id,
+        rule_name: rawRule?.rule_name,
+        target_labels_raw: rawRule?.target_labels,
+        target_labels_type: typeof rawRule?.target_labels
+      });
+
+      const rule = rawRule ? parseRuleData(rawRule) : null;
+
+      // ✅ Normalize target_labels to array
+      if (rule && rule.target_labels) {
+        if (typeof rule.target_labels === 'string') {
+          // Handle string "1" or "1,2"
+          rule.target_labels = rule.target_labels.split(',').map((id: string) => id.trim());
+        } else if (typeof rule.target_labels === 'number') {
+          // Handle number 1
+          rule.target_labels = [String(rule.target_labels)];
+        } else if (Array.isArray(rule.target_labels)) {
+          // Ensure all elements are strings
+          rule.target_labels = rule.target_labels.map((id: any) => String(id));
+        }
+      }
+
+      // ✅ Apply Dry Run override
+      if (rule && dryRun) {
+        rule.advanced_settings = { ...rule.advanced_settings, enableDryRun: true };
+        console.log('[execute-automation-rule] 🧪 Dry Run mode enabled via request override');
+      }
+
+      // ✅ Debug: Log parsed target_labels
+      console.log('[execute-automation-rule] 🔍 Parsed rule:', {
+        Id: rule?.Id,
+        rule_name: rule?.rule_name,
+        target_labels_parsed: rule?.target_labels,
+        target_labels_type: typeof rule?.target_labels,
+        target_labels_isArray: Array.isArray(rule?.target_labels),
+        target_labels_length: rule?.target_labels?.length
+      });
+
+      if (!rule) {
+        // Try to fetch all rules to see what's available
+        console.log(`[execute-automation-rule] Fetching all rules to debug...`);
+        const allRulesResponse = await fetchWithTimeout(
+          `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATED_RULES}/records?limit=10`,
+          {
+            method: "GET",
+            headers: getNocoDBHeaders(),
+          }
+        );
+        if (allRulesResponse.ok) {
+          const allRulesData = await allRulesResponse.json();
+          console.log(`[execute-automation-rule] Available rules:`, allRulesData.list?.map((r: any) => ({ Id: r.Id, id: r.id, rule_name: r.rule_name })));
+        }
+
+        console.error("[execute-automation-rule] Rule not found with ID:", ruleId);
+        return new Response(JSON.stringify({ error: "Rule not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      console.log(`[execute-automation-rule] Found rule: ${rule.rule_name}`);
+
+      // Log parsed rule data for debugging
+      console.log(`[execute-automation-rule] 🔍 Parsed rule data:`, {
+        rule_name: rule.rule_name,
+        conditions: rule.conditions,
+        condition_logic: rule.condition_logic,
+        actions: rule.actions,
+        conditionsType: typeof rule.conditions,
+        conditionsIsArray: Array.isArray(rule.conditions),
+        conditionsLength: Array.isArray(rule.conditions) ? rule.conditions.length : 'N/A',
+        actionsType: typeof rule.actions,
+        actionsIsArray: Array.isArray(rule.actions),
+        actionsLength: Array.isArray(rule.actions) ? rule.actions.length : 'N/A',
+        actionsDetail: JSON.stringify(rule.actions)
+      });
+
+      // Validate parsed data
+      if (!Array.isArray(rule.conditions) || rule.conditions.length === 0) {
+        console.error('[execute-automation-rule] ❌ Invalid conditions:', rule.conditions);
+        return new Response(
+          JSON.stringify({ error: 'Invalid rule conditions - must be non-empty array' }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!Array.isArray(rule.actions) || rule.actions.length === 0) {
+        console.error('[execute-automation-rule] ❌ Invalid actions:', rule.actions);
+        return new Response(
+          JSON.stringify({ error: 'Invalid rule actions - must be non-empty array' }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Check if rule is active (skip if manual run)
+      if (!rule.is_active && !manualRun) {
+        console.log("[execute-automation-rule] Rule is inactive");
+        return new Response(JSON.stringify({ message: "Rule is inactive", matchedCount: 0 }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Get Facebook ad account token from NocoDB
+      // ✅ FIX: Use 1 instead of true for NocoDB boolean filter
+      const accountWhereClause = encodeURIComponent(`(is_active,eq,1)`);
+      const accountResponse = await fetchWithTimeout(
+        `${NOCODB_API_URL}/api/v2/tables/${TABLES.FACEBOOK_AD_ACCOUNTS}/records?where=${accountWhereClause}&limit=1`,
+        {
+          method: "GET",
+          headers: getNocoDBHeaders(),
+        }
+      );
+
+      if (!accountResponse.ok) {
+        console.error("[execute-automation-rule] Failed to fetch ad account");
+        return new Response(JSON.stringify({ error: "No active Facebook ad account found" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const accountData = await accountResponse.json();
+      const adAccount = accountData.list?.[0];
+
+      if (!adAccount) {
+        console.error("[execute-automation-rule] No active Facebook ad account found");
+        return new Response(JSON.stringify({ error: "No active Facebook ad account found" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Get date range based on rule timeframe and ad account timezone
+      const accountTimezone = adAccount.timezone_name || 'Asia/Ho_Chi_Minh';
+      const { startDate, endDate } = getDateRange(rule.time_range, accountTimezone);
+      const accountId = adAccount.account_id;
+
+      console.log(`[execute-automation-rule] 📅 Time range: ${rule.time_range} (${startDate} to ${endDate}) using timezone: ${accountTimezone}`);
+
+      // ✅ CRITICAL: Defensive check for empty target_labels
+      if (!rule.target_labels || !Array.isArray(rule.target_labels) || rule.target_labels.length === 0) {
+        console.error('[execute-automation-rule] ❌ NO TARGET LABELS SPECIFIED');
+        console.error('[execute-automation-rule] ❌ Quy tắc phải có ít nhất 1 label để tránh ảnh hưởng tất cả campaigns');
+
+        return new Response(
+          JSON.stringify({
+            error: 'Quy tắc phải có ít nhất 1 label target. Vui lòng chỉnh sửa quy tắc và thêm label.',
+            matchedCount: 0,
+            results: []
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          }
+        );
+      }
+
+      // 🚀 OPTIMIZATION: Fetch label assignments FIRST
+      console.log(`[execute-automation-rule] 🏷️ Target labels: ${rule.target_labels.join(", ")}`);
+
+      // ✅ STEP 1: Create PENDING execution log IMMEDIATELY
+      console.log(`[execute-automation-rule] 📝 Creating PENDING execution log...`);
+      const pendingLogResponse = await fetchWithTimeout(
+        `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATION_RULE_EXECUTION_LOGS}/records`,
+        {
+          method: "POST",
+          headers: getNocoDBHeaders(),
+          body: JSON.stringify({
+            rule_id: ruleId,
+            executed_at: new Date().toISOString(),
+            status: "pending",
+            matched_objects_count: 0,
+            executed_actions_count: 0,
+            details: JSON.stringify([{ message: "Bắt đầu thực thi quy tắc..." }]),
+          }),
+        }
+      );
+
+      let pendingLogId = null;
+      if (pendingLogResponse.ok) {
+        const pendingLogData = await pendingLogResponse.json();
+        pendingLogId = pendingLogData.Id;
+        console.log(`[execute-automation-rule] ✅ Created pending log with Id: ${pendingLogId}`);
+      }
+
+      const labelIds = rule.target_labels.join(",");
+      const labelWhereClause = encodeURIComponent(`(label_id,in,${labelIds})`);
+
+      console.log(`[execute-automation-rule] 🔍 Step 1: Fetching label assignments with where: ${labelWhereClause}`);
+
+      const labelResponse = await fetchWithTimeout(
+        `${NOCODB_API_URL}/api/v2/tables/${TABLES.CAMPAIGN_LABEL_ASSIGNMENTS}/records?where=${labelWhereClause}&limit=1000`,
+        {
+          method: "GET",
+          headers: getNocoDBHeaders(),
+        }
+      );
+
+      if (!labelResponse.ok) {
+        const errorText = await labelResponse.text();
+        console.error(`[execute-automation-rule] ❌ CRITICAL: Cannot fetch label assignments:`, {
+          status: labelResponse.status,
+          body: errorText,
+          tableId: TABLES.CAMPAIGN_LABEL_ASSIGNMENTS
+        });
+
+        // Update log if exists
+        if (pendingLogId) {
+          await fetchWithTimeout(`${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATION_RULE_EXECUTION_LOGS}/records/${pendingLogId}`, {
+            method: 'PATCH',
+            headers: getNocoDBHeaders(),
+            body: JSON.stringify({
+              status: 'failed',
+              details: JSON.stringify([{ message: `Lỗi fetch labels: ${errorText}` }])
+            })
+          });
+        }
+
+        return new Response(
+          JSON.stringify({
+            error: `Không thể lấy thông tin label assignments (${labelResponse.status}).`,
+            matchedCount: 0,
+            results: []
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          }
+        );
+      }
+
+      const labelData = await labelResponse.json();
+      const allLabeledObjects = labelData.list || [];
+
+      console.log(`[execute-automation-rule] 📋 Fetched ${allLabeledObjects.length} total label assignments from NocoDB`);
+
+      // Filter by user_id
+      const labeledObjects = allLabeledObjects.filter((obj: any) => obj.user_id === userId);
+      console.log(`[execute-automation-rule] 📋 Filtered to ${labeledObjects.length} assignments for user ${userId}`);
+
+      // Extract IDs based on scope
+      const labeledCampaignIds = labeledObjects
+        .map((obj: any) => obj.campaign_id)
+        .filter((id: any) => id);
+
+      const labeledAdSetIds = labeledObjects
+        .map((obj: any) => obj.adset_id)
+        .filter((id: any) => id);
+
+      const labeledAdIds = labeledObjects
+        .map((obj: any) => obj.ad_id)
+        .filter((id: any) => id);
+
+      console.log(`[execute-automation-rule] 🏷️ Found labeled objects:`, {
+        campaigns: labeledCampaignIds.length,
+        adsets: labeledAdSetIds.length,
+        ads: labeledAdIds.length
+      });
+
+      if (labeledCampaignIds.length === 0 && labeledAdSetIds.length === 0 && labeledAdIds.length === 0) {
+        console.log('[execute-automation-rule] ⚠️ No labeled objects found for this rule');
+
+        // Update log
+        if (pendingLogId) {
+          await fetchWithTimeout(`${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATION_RULE_EXECUTION_LOGS}/records/${pendingLogId}`, {
+            method: 'PATCH',
+            headers: getNocoDBHeaders(),
+            body: JSON.stringify({
+              status: 'success', // Technically success, just 0 matches
+              matched_objects_count: 0,
+              details: JSON.stringify([{ message: "Không tìm thấy đối tượng nào có nhãn phù hợp." }])
+            })
+          });
+        }
+
+        return new Response(
+          JSON.stringify({
+            message: 'No labeled objects found',
+            matchedCount: 0,
+            results: []
+          }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          }
+        );
+      }
+
+      // 🚀 OPTIMIZATION: Build WHERE clause to fetch insights
+      // Logic:
+      // 1. Filter by user_id and account_id
+      // 2. Filter by level matches rule scope (crucial!)
+      // 3. Filter by IDs (Campaign OR AdSet OR Ad)
+
+      let idFilter = '';
+      const conditions = [];
+
+      // Add ID filters based on what we found
+      if (labeledCampaignIds.length > 0) {
+        conditions.push(`(campaign_id,in,${labeledCampaignIds.join(',')})`);
+      }
+      if (labeledAdSetIds.length > 0) {
+        conditions.push(`(adset_id,in,${labeledAdSetIds.join(',')})`);
+      }
+      if (labeledAdIds.length > 0) {
+        conditions.push(`(ad_id,in,${labeledAdIds.join(',')})`);
+      }
+
+      // Combine ID filters with OR logic if multiple types exist
+      if (conditions.length > 1) {
+        idFilter = `(${conditions.join('~or')})`;
+      } else if (conditions.length === 1) {
+        idFilter = conditions[0];
+      }
+
+      // Determine level filter based on rule scope
+      // If scope is 'campaign', we want campaign level insights
+      // If scope is 'adset', we want adset level insights
+      const levelFilter = `(level,eq,${rule.scope})`;
+
+      const insightsWhereClause = encodeURIComponent(
+        `(user_id,eq,${userId})~and(account_id,eq,${accountId})~and${levelFilter}~and${idFilter}`
+      );
+
+      const insightsUrl = `${NOCODB_API_URL}/api/v2/tables/${TABLES.FACEBOOK_INSIGHTS}/records?where=${insightsWhereClause}&limit=1000&sort=-date_start`;
+
+      console.log(`[execute-automation-rule] 🔍 Step 2: Fetching insights for scope ${rule.scope}`);
+      console.log(`[execute-automation-rule]   URL: ${insightsUrl.substring(0, 150)}...`);
+
+      const insightsResponse = await fetchWithTimeout(insightsUrl, {
+        method: "GET",
+        headers: getNocoDBHeaders(),
+      });
+
+      console.log(`[execute-automation-rule] 📊 NocoDB insights response status: ${insightsResponse.status}`);
+
+      if (!insightsResponse.ok) {
+        const errorText = await insightsResponse.text();
+        console.error(`[execute-automation-rule] ❌ Error fetching insights from NocoDB:`);
+        console.error(`[execute-automation-rule]   Status: ${insightsResponse.status}`);
+        console.error(`[execute-automation-rule]   Response: ${errorText}`);
+        throw new Error(`Failed to fetch insights from NocoDB: ${insightsResponse.status} - ${errorText}`);
+      }
+
+      const insightsData = await insightsResponse.json();
+      let allInsights = insightsData.list || [];
+
+      console.log(`[execute-automation-rule] 📈 Fetched ${allInsights.length} insights for scope ${rule.scope}`);
+
+      // Filter by date range on client side (NocoDB doesn't support date comparison in WHERE)
+      const insights = allInsights.filter((insight: any) => {
+        if (!insight.date_start) return false;
+        const insightDate = insight.date_start.split('T')[0]; // Normalize to YYYY-MM-DD
+        return insightDate >= startDate && insightDate <= endDate;
+      });
+
+      console.log(`[execute-automation-rule] ✅ Filtered to ${insights.length} insights within date range ${startDate} to ${endDate}`);
+
+      if (insights.length > 0) {
+        const sample = insights[0];
+        console.log(`[execute-automation-rule] 📊 Sample insight:`, {
+          id: rule.scope === 'campaign' ? sample.campaign_id : rule.scope === 'adset' ? sample.adset_id : sample.ad_id,
+          name: sample.name || sample.campaign_name || sample.adset_name || sample.ad_name,
+          date_start: sample.date_start,
+          spend: sample.spend,
+          results: sample.results,
+          level: sample.level
+        });
+      } else {
+        console.log(`[execute-automation-rule] ⚠️ No insights found for labeled objects in date range: ${startDate} to ${endDate}`);
+      }
+
+      // ✨ NEW: Fetch sales reports from NocoDB
+      console.log(`[execute-automation-rule] 📞 Fetching sales reports...`);
+      const salesWhereClause = encodeURIComponent(`(user_id,eq,${userId})`);
+      const salesUrl = `${NOCODB_API_URL}/api/v2/tables/${TABLES.SALES_REPORTS}/records?where=${salesWhereClause}&limit=10000`;
+
+      const salesResponse = await fetchWithTimeout(salesUrl, {
+        method: "GET",
+        headers: getNocoDBHeaders(),
+      });
+
+      let salesData: any[] = [];
+      if (salesResponse.ok) {
+        const salesResult = await salesResponse.json();
+        salesData = salesResult.list || [];
+        console.log(`[execute-automation-rule] 📊 Fetched ${salesData.length} sales reports`);
+      } else {
+        console.log(`[execute-automation-rule] ⚠️ Could not fetch sales reports: ${salesResponse.status}`);
+      }
+
+      // Group sales by campaign_id + date
+      const salesByCampaign: Record<string, {
+        appointments: number;
+        phones: number;
+        service_revenue: number;
+        total_revenue: number;
+      }> = {};
+
+      salesData.forEach((sale) => {
+        if (!sale.campaign_id || !sale.report_date) return;
+
+        const key = `${sale.campaign_id}_${sale.report_date.split('T')[0]}`;
+
+        if (!salesByCampaign[key]) {
+          salesByCampaign[key] = {
+            appointments: 0,
+            phones: 0,
+            service_revenue: 0,
+            total_revenue: 0
+          };
+        }
+
+        // Count appointments (scheduled or completed)
+        if (sale.appointment_status === 'scheduled' || sale.appointment_status === 'completed') {
+          salesByCampaign[key].appointments++;
+        }
+
+        // Count phones collected
+        if (sale.phone_number && sale.phone_number.trim().length > 0) {
+          salesByCampaign[key].phones++;
+        }
+
+        // Sum revenues
+        salesByCampaign[key].service_revenue += parseFloat(sale.service_revenue || 0);
+        salesByCampaign[key].total_revenue += parseFloat(sale.total_revenue || 0);
+      });
+
+      console.log(`[execute-automation-rule] 📈 Grouped sales into ${Object.keys(salesByCampaign).length} campaign-date combinations`);
+
+      // ℹ️ Insights already filtered by labeled campaigns at fetch time - no need to filter again
+      console.log('[execute-automation-rule] ℹ️ Insights already filtered by labeled campaigns at fetch time');
+
+      // Aggregate data by scope
+      const aggregatedData = aggregateByScope(insights, rule.scope);
+
+      console.log(`[execute-automation-rule] Aggregated into ${aggregatedData.length} groups`);
+
+      // ✨ NEW: Enrich aggregated data with sales metrics
+      const enrichedData = aggregatedData.map((obj: any) => {
+        // Aggregate sales data across all dates for this campaign
+        const campaignSales = Object.entries(salesByCampaign)
+          .filter(([key]) => key.startsWith(`${obj.id}_`))
+          .reduce((acc, [, sales]) => ({
+            appointments: acc.appointments + sales.appointments,
+            phones: acc.phones + sales.phones,
+            service_revenue: acc.service_revenue + sales.service_revenue,
+            total_revenue: acc.total_revenue + sales.total_revenue
+          }), { appointments: 0, phones: 0, service_revenue: 0, total_revenue: 0 });
+
+        // Calculate Manager metrics
+        const booking_rate = obj.results > 0 ? (campaignSales.appointments / obj.results) * 100 : 0;
+        const phone_collection_rate = obj.results > 0 ? (campaignSales.phones / obj.results) * 100 : 0;
+        const cost_per_appointment = campaignSales.appointments > 0 ? obj.spend / campaignSales.appointments : 0;
+        const cost_per_service_revenue = campaignSales.service_revenue > 0 ? obj.spend / campaignSales.service_revenue : 0;
+
+        // Calculate Director metrics
+        const marketing_revenue_ratio = campaignSales.total_revenue > 0 ? (obj.spend / campaignSales.total_revenue) * 100 : 0;
+        const marketing_service_ratio = campaignSales.service_revenue > 0 ? (obj.spend / campaignSales.service_revenue) * 100 : 0;
+        const marketing_daily_ratio = campaignSales.total_revenue > 0 ? obj.spend / campaignSales.total_revenue : 0;
+        const roi = campaignSales.total_revenue > 0 ? ((campaignSales.total_revenue - obj.spend) / obj.spend) * 100 : 0;
+        const roas = obj.spend > 0 ? campaignSales.total_revenue / obj.spend : 0;
+
+        return {
+          ...obj,
+          // Sales data
+          appointments: campaignSales.appointments,
+          phones: campaignSales.phones,
+          service_revenue: campaignSales.service_revenue,
+          total_revenue: campaignSales.total_revenue,
+          // Manager metrics
+          booking_rate,
+          phone_collection_rate,
+          cost_per_appointment,
+          cost_per_service_revenue,
+          // Director metrics
+          marketing_revenue_ratio,
+          marketing_service_ratio,
+          marketing_daily_ratio,
+          roi,
+          roas
+        };
+      });
+
+      if (enrichedData.length > 0) {
+        console.log(`[execute-automation-rule] 📊 Sample enriched data:`, {
+          id: enrichedData[0].id,
+          name: enrichedData[0].name,
+          spend: enrichedData[0].spend,
+          results: enrichedData[0].results,
+          appointments: enrichedData[0].appointments,
+          booking_rate: enrichedData[0].booking_rate?.toFixed(2) + '%',
+          roi: enrichedData[0].roi?.toFixed(2) + '%',
+          roas: enrichedData[0].roas?.toFixed(2)
+        });
+      }
+
+      // ✅ STEP 1: Create PENDING execution log
+      console.log(`[execute-automation-rule] 📝 Creating PENDING execution log...`);
+      const pendingLogResponse = await fetch(
+        `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATION_RULE_EXECUTION_LOGS}/records`,
+        {
+          method: "POST",
+          headers: getNocoDBHeaders(),
+          body: JSON.stringify({
+            rule_id: ruleId,
+            executed_at: new Date().toISOString(),
+            status: "pending",
+            matched_objects_count: 0,
+            executed_actions_count: 0,
+            details: JSON.stringify([{ message: "Đang kiểm tra điều kiện..." }]), // ✅ Stringify for Text column
+          }),
+        }
+      );
+
+      let pendingLogId = null;
+      if (pendingLogResponse.ok) {
+        const pendingLogData = await pendingLogResponse.json();
+        pendingLogId = pendingLogData.Id;
+        console.log(`[execute-automation-rule] ✅ Created pending log with Id: ${pendingLogId}`);
+      }
+
+      // Update rule status to pending
+      await fetchWithTimeout(
+        `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATED_RULES}/records/${rule.Id}`,
+        {
+          method: "PATCH",
+          headers: getNocoDBHeaders(),
+          body: JSON.stringify({
+            last_execution_status: "pending",
+          }),
+        }
+      );
+
+      // ✅ STEP 2: Evaluate conditions with detailed logging (now using enrichedData)
+      console.log(`[execute-automation-rule] 📋 Evaluating conditions:`, JSON.stringify(rule.conditions));
+      console.log(`[execute-automation-rule] 🔀 Condition logic: ${rule.condition_logic}`);
+      console.log(`[execute-automation-rule] 🔍 Conditions validation:`, {
+        isArray: Array.isArray(rule.conditions),
+        length: rule.conditions?.length,
+        firstCondition: rule.conditions?.[0]
+      });
+
+      const matchedObjects = enrichedData.map((obj) => {
+        const matched = evaluateConditions(obj, rule.conditions, rule.condition_logic);
+
+        // ✅ NEW: Collect matched conditions details
+        const conditionsDetail = rule.conditions.map((condition: RuleCondition) => {
+          const value = obj[condition.metric];
+          const conditionMet = evaluateSingleCondition(value, condition.operator, condition.value);
+          return {
+            metric: condition.metric,
+            operator: condition.operator,
+            threshold: condition.value,
+            actualValue: value,
+            met: conditionMet
+          };
+        });
+
+        // Log each object evaluation with advanced metrics
+        console.log(`[execute-automation-rule] Object "${obj.name}" (${obj.id}):`, {
+          spend: obj.spend,
+          results: obj.results,
+          appointments: obj.appointments,
+          booking_rate: obj.booking_rate?.toFixed(2) + '%',
+          roi: obj.roi?.toFixed(2) + '%',
+          matched: matched ? '✅ MATCHED' : '❌ NOT MATCHED'
+        });
+
+        // Log condition details
+        conditionsDetail.forEach((cond: { metric: string; operator: string; threshold: number; actualValue: number; met: boolean }) => {
+          console.log(`  └─ ${cond.metric} (${cond.actualValue}) ${cond.operator} ${cond.threshold}: ${cond.met ? '✅' : '❌'}`);
+        });
+
+        return {
+          ...obj,
+          _matched: matched,
+          _matchedConditions: conditionsDetail
+        };
+      }).filter((obj) => obj._matched);
+
+      console.log(`[execute-automation-rule] ${matchedObjects.length} objects matched conditions`);
+
+      // Execute actions
+      const executionResults = [];
+      for (const obj of matchedObjects) {
+        console.log(`[execute-automation-rule] 🎯 Processing matched object: ${obj.name} (${obj.id})`);
+        console.log(`[execute-automation-rule] 📋 Actions to execute (${rule.actions.length}):`,
+          rule.actions.map((a: RuleAction) => ({ type: a.type, value: a.value, budgetMode: a.budgetMode }))
+        );
+
+        for (const action of rule.actions) {
+          try {
+            // ✅ NEW: Check execution history before executing
+            if (action.type === 'increase_budget' || action.type === 'decrease_budget') {
+              const historyCheck = await checkExecutionHistory(
+                rule.Id,
+                obj.id,
+                rule.scope,
+                userId,
+                action.type,
+                { ...rule.advanced_settings, manualRun } // ✅ Pass manualRun
+              );
+
+              if (!historyCheck.canExecute) {
+                console.log(`[execute-automation-rule] ⏸️ Skipping ${action.type} on ${obj.id}:`, historyCheck.reason);
+                executionResults.push({
+                  objectId: obj.id,
+                  objectName: obj.name,
+                  campaignId: obj.campaign_id || obj.id,
+                  campaignName: obj.campaign_name || obj.name,
+                  level: obj.level || rule.scope,
+                  action: action.type,
+                  result: "skipped",
+                  status: "skipped",
+                  reason: historyCheck.reason,
+                  executionCount: historyCheck.executionCount,
+                  timestamp: new Date().toISOString()
+                });
+                continue;
+              }
+            }
+
+            // Check if action should be executed at specific time
+            if (action.executeAt && !shouldExecuteNow(action.executeAt)) {
+              console.log(`[execute-automation-rule] Skipping action ${action.type} - scheduled for ${action.executeAt}`);
+              continue;
+            }
+
+            console.log(`[execute-automation-rule] ▶️ Executing ${action.type} on ${obj.id}`, {
+              actionType: action.type,
+              actionValue: action.value,
+              budgetMode: action.budgetMode
+            });
+
+            const result = await executeAction(
+              action,
+              obj.id,
+              adAccount.access_token,
+              rule.advanced_settings || {},
+              rule,
+              obj,
+              adAccount.currency // ✅ Pass currency
+            );
+
+            executionResults.push({
+              objectId: obj.id,
+              objectName: obj.name,
+              campaignId: obj.campaign_id || obj.id,
+              campaignName: obj.campaign_name || obj.name,
+              level: obj.level || rule.scope,
+              action: action.type,
+              result: "success",
+              status: "completed",
+              details: result,
+              matchedConditions: obj._matchedConditions, // ✅ NEW: Include matched conditions
+              metrics: { // ✅ NEW: Include actual metrics
+                spend: obj.spend,
+                results: obj.results,
+                roi: obj.roi,
+                roas: obj.roas
+              },
+              timestamp: new Date().toISOString()
+            });
+
+            console.log(`[execute-automation-rule] ✅ Action ${action.type} executed successfully for ${obj.id}`);
+
+            // ✨ Save pending revert if auto-revert is enabled
+            if (action.autoRevert && action.revertAtTime && action.revertAction) {
+              try {
+                const now = new Date();
+                const [hours, minutes] = action.revertAtTime.split(':').map(Number);
+
+                // Tạo date với giờ user chọn (hôm nay)
+                const revertAt = new Date();
+                revertAt.setHours(hours, minutes, 0, 0);
+
+                // ✅ Nếu giờ đã qua → schedule cho NGÀY MAI
+                if (revertAt <= now) {
+                  revertAt.setDate(revertAt.getDate() + 1);
+                  console.log(`[execute-automation-rule] ⏰ Time ${action.revertAtTime} đã qua → schedule ngày mai`);
+                } else {
+                  console.log(`[execute-automation-rule] ⏰ Time ${action.revertAtTime} chưa tới → schedule hôm nay`);
+                }
+
+                console.log(`[execute-automation-rule] 🔄 Scheduling auto-revert for ${obj.id}:`, {
+                  originalAction: action.type,
+                  revertAction: action.revertAction,
+                  revertAtTime: action.revertAtTime,
+                  revertAt: revertAt.toISOString(),
+                  day: revertAt.getDate() === now.getDate() ? 'TODAY' : 'TOMORROW'
+                });
+
+                // Save to NocoDB automation_pending_reverts table
+                const revertUrl = `${NOCODB_API_URL}/api/v2/tables/${TABLES.PENDING_REVERTS}/records`;
+                const revertResponse = await fetchWithTimeout(revertUrl, {
+                  method: 'POST',
+                  headers: getNocoDBHeaders(),
+                  body: JSON.stringify({
+                    rule_id: rule.Id,
+                    object_id: obj.id,
+                    object_type: rule.scope,
+                    original_action: action.type,
+                    revert_action: action.revertAction,
+                    revert_value: action.value ? JSON.stringify({ value: action.value }) : null,
+                    executed_at: new Date().toISOString(),
+                    revert_at: revertAt.toISOString(),
+                    status: 'pending',
+                    user_id: userId
+                  })
+                });
+
+                if (!revertResponse.ok) {
+                  const errorText = await revertResponse.text();
+                  console.error(`[execute-automation-rule] ⚠️ Failed to save pending revert:`, errorText);
+                } else {
+                  console.log(`[execute-automation-rule] ✅ Pending revert scheduled for ${revertAt.toISOString()}`);
+                }
+              } catch (revertSaveError) {
+                console.error(`[execute-automation-rule] ⚠️ Error scheduling auto-revert:`, revertSaveError);
+              }
+            }
+
+            // ⚠️ BACKWARD COMPATIBILITY: Hỗ trợ rules cũ dùng revertAfterHours
+            else if (action.autoRevert && action.revertAfterHours && action.revertAction) {
+              try {
+                const revertAt = new Date(Date.now() + action.revertAfterHours * 60 * 60 * 1000);
+                console.log(`[execute-automation-rule] 🔄 [LEGACY] Using revertAfterHours: ${action.revertAfterHours}h`);
+
+                // Save to NocoDB automation_pending_reverts table
+                const revertUrl = `${NOCODB_API_URL}/api/v2/tables/${TABLES.PENDING_REVERTS}/records`;
+                const revertResponse = await fetchWithTimeout(revertUrl, {
+                  method: 'POST',
+                  headers: getNocoDBHeaders(),
+                  body: JSON.stringify({
+                    rule_id: rule.Id,
+                    object_id: obj.id,
+                    object_type: rule.scope,
+                    original_action: action.type,
+                    revert_action: action.revertAction,
+                    revert_value: action.value ? JSON.stringify({ value: action.value }) : null,
+                    executed_at: new Date().toISOString(),
+                    revert_at: revertAt.toISOString(),
+                    status: 'pending',
+                    user_id: userId
+                  })
+                });
+
+                if (!revertResponse.ok) {
+                  const errorText = await revertResponse.text();
+                  console.error(`[execute-automation-rule] ⚠️ Failed to save pending revert:`, errorText);
+                } else {
+                  console.log(`[execute-automation-rule] ✅ [LEGACY] Pending revert scheduled for ${revertAt.toISOString()}`);
+                }
+              } catch (revertSaveError) {
+                console.error(`[execute-automation-rule] ⚠️ Error scheduling legacy auto-revert:`, revertSaveError);
+              }
+            }
+
+            // Assign label to matched campaign in NocoDB (if label_id_to_assign is set)
+            if (rule.label_id_to_assign && obj.level === 'campaign') {
+              try {
+                console.log(`[execute-automation-rule] 🏷️ Assigning label ${rule.label_id_to_assign} to campaign ${obj.id}`);
+
+                const labelAssignmentUrl = `${NOCODB_API_URL}/api/v2/tables/${TABLES.CAMPAIGN_LABEL_ASSIGNMENTS}/records`;
+                const assignmentResponse = await fetchWithTimeout(labelAssignmentUrl, {
+                  method: 'POST',
+                  headers: getNocoDBHeaders(),
+                  body: JSON.stringify({
+                    user_id: userId,
+                    campaign_id: obj.id,
+                    label_id: rule.label_id_to_assign,
+                    assigned_at: new Date().toISOString(),
+                    assigned_by: 'automation_rule',
+                    rule_id: ruleId
+                  })
+                });
+
+                if (assignmentResponse.ok) {
+                  console.log(`[execute-automation-rule] ✅ Label assigned to campaign ${obj.id}`);
+                } else {
+                  const errorText = await assignmentResponse.text();
+                  console.error(`[execute-automation-rule] ⚠️ Failed to assign label: ${errorText}`);
+                }
+              } catch (labelError) {
+                console.error(`[execute-automation-rule] ⚠️ Error assigning label:`, labelError);
+              }
+            }
+          } catch (error) {
+            console.error(`[execute-automation-rule] ❌ Error executing action ${action.type}:`, error);
+            executionResults.push({
+              objectId: obj.id,
+              objectName: obj.name,
+              campaignId: obj.campaign_id || obj.id,
+              campaignName: obj.campaign_name || obj.name,
+              level: obj.level || rule.scope,
+              action: action.type,
+              result: "failed",
+              status: "error",
+              error: error instanceof Error ? error.message : "Unknown error",
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+      }
+
+      const executionStatus = executionResults.some((r) => r.result === "failed") ? "partial" : "success";
+
+      // ✅ Update pending log to final status (if exists)
+      if (pendingLogId) {
+        await fetchWithTimeout(
+          `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATION_RULE_EXECUTION_LOGS}/records/${pendingLogId}`,
+          {
+            method: "PATCH",
+            headers: getNocoDBHeaders(),
+            body: JSON.stringify({
+              status: executionStatus,
+              matched_objects_count: matchedObjects.length,
+              executed_actions_count: executionResults.length,
+              details: JSON.stringify(executionResults).substring(0, 255), // ✅ Truncate to fit SingleLineText
+            }),
+          }
+        );
+      } else {
+        // Fallback: Create new log if pending creation failed
+        await fetchWithTimeout(
+          `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATION_RULE_EXECUTION_LOGS}/records`,
+          {
+            method: "POST",
+            headers: getNocoDBHeaders(),
+            body: JSON.stringify({
+              rule_id: ruleId,
+              executed_at: new Date().toISOString(),
+              status: executionStatus,
+              matched_objects_count: matchedObjects.length,
+              executed_actions_count: executionResults.length,
+              details: JSON.stringify(executionResults).substring(0, 255), // ✅ Truncate
+              user_id: userId
+            }),
+          }
+        );
+      }
+
+      // Update rule execution metadata in NocoDB
+      await fetchWithTimeout(
+        `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATED_RULES}/records/${rule.Id}`,
+        {
+          method: "PATCH",
+          headers: getNocoDBHeaders(),
+          body: JSON.stringify({
+            last_run_at: new Date().toISOString(),
+            execution_count: (rule.execution_count || 0) + 1,
+            last_execution_status: executionStatus,
+            last_execution_log: JSON.stringify({
+              timestamp: new Date().toISOString(),
+              matchedCount: matchedObjects.length,
+              executedCount: executionResults.length,
+              results: executionResults
+            }),
+          }),
+        }
+      );
+      return new Response(
+        JSON.stringify({
+          success: true,
+          matchedCount: matchedObjects.length,
+          executedCount: executionResults.length,
+          results: executionResults,
+          debug: {
+            labeledCampaignIds,
+            allInsightsCount: allInsights.length,
+            filteredInsightsCount: insights.length,
+            startDate,
+            endDate
+          }
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+
+    } catch (processingError) {
+      // Handle processing errors
+      console.error("[execute-automation-rule] Processing error:", processingError);
+      throw processingError; // Re-throw to be caught by outer catch
+    } finally {
+      // 🔓 ALWAYS unlock the rule, even if there was an error
+      try {
+        console.log(`🔓 [UNLOCK] Unlocking rule ${ruleId}...`);
+
+        const unlockResponse = await fetchWithTimeout(
+          `${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATED_RULES}/records`,
+          {
+            method: 'PATCH',
+            headers: getNocoDBHeaders(),
+            body: JSON.stringify({
+              Id: ruleId,
+              processing_status: 'idle',
+              processing_started_at: null,
+            }),
+          }
+        );
+
+        if (!unlockResponse.ok) {
+          console.error(`❌ [UNLOCK] Failed to unlock rule ${ruleId}:`, unlockResponse.status);
+        } else {
+          console.log(`✅ [UNLOCK] Rule ${ruleId} unlocked successfully`);
+        }
+      } catch (unlockError) {
+        // Log but don't throw - we don't want unlock failure to hide the real error
+        console.error(`❌ [UNLOCK] Error unlocking rule ${ruleId}:`, unlockError);
+      }
+    }
+
+  } catch (error) {
+    console.error("[execute-automation-rule] Error:", error);
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
+
+// Helper: Safe JSON parse (same logic as automatedRulesService.ts)
+function safeJSONParse(value: any, fallback: any) {
+  if (!value) return fallback;
+
+  // If already correct type, return it
+  if (typeof value !== 'string') {
+    // If it's an object but we expect array, convert empty object to empty array
+    if (Array.isArray(fallback) && typeof value === 'object' && !Array.isArray(value)) {
+      // Empty object should become empty array
+      if (Object.keys(value).length === 0) {
+        return [];
+      }
+      // Single object should become array with one item
+      if (value.id || value.type || value.metric) {
+        return [value];
+      }
+    }
+    return value;
+  }
+
+  try {
+    // Try to parse once
+    let parsed = JSON.parse(value);
+
+    // If result is still a string, try parsing again (double-stringified)
+    if (typeof parsed === 'string') {
+      parsed = JSON.parse(parsed);
+    }
+
+    // If we expect an array but got an object
+    if (Array.isArray(fallback)) {
+      // Empty object should become empty array
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        if (Object.keys(parsed).length === 0) {
+          return [];
+        }
+        // Single object should become array with one item
+        if (parsed.id || parsed.type || parsed.metric) {
+          return [parsed];
+        }
+      }
+    }
+
+    return parsed || fallback;
+  } catch (e) {
+    console.error('[execute-automation-rule] ⚠️ JSON parse error:', e, value);
+    return fallback;
+  }
+}
+
+// Helper: Parse rule data from NocoDB (handle JSON strings)
+function parseRuleData(rule: any) {
+  return {
+    ...rule,
+    conditions: safeJSONParse(rule.conditions, []),
+    actions: safeJSONParse(rule.actions, []),
+    advanced_settings: safeJSONParse(rule.advanced_settings, {}),
+    labels: safeJSONParse(rule.labels, []),
+    target_labels: safeJSONParse(rule.target_labels, []),
+    condition_logic: rule.condition_logic || 'all'
+  };
+}
+
+// Helper: Get date range
+// Helper: Get date range (adjusted for specific timezone)
+function getDateRange(timeRange: string, timezone: string = 'Asia/Ho_Chi_Minh') {
+  // Create date in specific timezone
+  const getDateInTimezone = (offsetDays = 0) => {
+    const d = new Date();
+    // Use Intl to get date string in target timezone
+    const options: Intl.DateTimeFormatOptions = {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour12: false
+    };
+
+    // Calculate date with offset
+    d.setDate(d.getDate() - offsetDays);
+
+    // Format: MM/DD/YYYY (default US locale) -> YYYY-MM-DD
+    const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(d);
+    const year = parts.find(p => p.type === 'year')?.value;
+    const month = parts.find(p => p.type === 'month')?.value;
+    const day = parts.find(p => p.type === 'day')?.value;
+
+    return `${year}-${month}-${day}`;
+  };
+
+  let startDate: string;
+  const endDate = getDateInTimezone(0); // Today in target timezone
+
+  switch (timeRange) {
+    case "today":
+      startDate = getDateInTimezone(0);
+      break;
+    case "yesterday":
+      startDate = getDateInTimezone(1);
+      break;
+    case "7_days":
+      startDate = getDateInTimezone(7);
+      break;
+    case "14_days":
+      startDate = getDateInTimezone(14);
+      break;
+    case "30_days":
+      startDate = getDateInTimezone(30);
+      break;
+    case "lifetime":
+      startDate = "2020-01-01";
+      break;
+    default:
+      startDate = getDateInTimezone(7);
+  }
+
+  console.log(`[execute-automation-rule] 📅 Date Range (${timezone}): ${startDate} to ${endDate} (Range: ${timeRange})`);
+
+  return {
+    startDate,
+    endDate,
+  };
+}
+
+// Helper: Aggregate insights by scope
+function aggregateByScope(insights: any[], scope: string) {
+  const grouped: any = {};
+
+  insights.forEach((insight) => {
+    let key: string;
+    let name: string;
+
+    if (scope === "campaign") {
+      key = insight.campaign_id;
+      // ✅ Fallback chain to find name
+      name = insight.campaign_name || insight.name || `Campaign ${key}`;
+    } else if (scope === "adset") {
+      key = insight.adset_id;
+      // ✅ Fallback chain to find name
+      name = insight.adset_name || insight.name || `Ad Set ${key}`;
+    } else {
+      key = insight.ad_id;
+      // ✅ Fallback chain to find name
+      name = insight.ad_name || insight.name || `Ad ${key}`;
+    }
+
+    if (!key) return; // ✅ Skip if no key found
+
+    if (!grouped[key]) {
+      grouped[key] = {
+        id: key,
+        name: name,
+        level: scope,
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        reach: 0,
+        results: 0,
+      };
+    }
+
+    grouped[key].spend += parseFloat(insight.spend || 0);
+    grouped[key].impressions += parseInt(insight.impressions || 0);
+    grouped[key].clicks += parseInt(insight.clicks || 0);
+    grouped[key].reach = Math.max(grouped[key].reach, parseInt(insight.reach || 0));
+    grouped[key].results += parseInt(insight.results || 0);
+  });
+
+  // Calculate derived metrics
+  const result = Object.values(grouped).map((obj: any) => ({
+    ...obj,
+    ctr: obj.impressions > 0 ? (obj.clicks / obj.impressions) * 100 : 0,
+    cpc: obj.clicks > 0 ? obj.spend / obj.clicks : 0,
+    cpm: obj.impressions > 0 ? (obj.spend / obj.impressions) * 1000 : 0,
+    cost_per_result: obj.results > 0 ? obj.spend / obj.results : 0,
+    frequency: obj.reach > 0 ? obj.impressions / obj.reach : 0,
+  }));
+
+  // ✅ Log sample aggregated data for debugging
+  if (result.length > 0) {
+    console.log(`[execute-automation-rule] 📈 Sample aggregated data:`, {
+      id: result[0].id,
+      name: result[0].name,
+      spend: result[0].spend,
+      results: result[0].results,
+      cost_per_result: result[0].cost_per_result
+    });
+  }
+
+  return result;
+}
+
+// Helper: Evaluate single condition
+function evaluateSingleCondition(value: any, operator: string, conditionValue: number): boolean {
+  // Ensure value is a number for numeric comparisons
+  const numValue = Number(value);
+
+  if (isNaN(numValue)) {
+    // If value is not a valid number (e.g. undefined, null, or non-numeric string), 
+    // it cannot satisfy numeric conditions like > or <
+    // Exception: 'equals' 0 might match if we consider null as 0? No, let's be strict.
+    return false;
+  }
+
+  switch (operator) {
+    case "greater_than":
+      return numValue > conditionValue;
+    case "less_than":
+      return numValue < conditionValue;
+    case "equals":
+      return numValue === conditionValue;
+    case "greater_than_or_equal":
+      return numValue >= conditionValue;
+    case "less_than_or_equal":
+      return numValue <= conditionValue;
+    default:
+      return false;
+  }
+}
+
+// Helper: Evaluate conditions
+function evaluateConditions(obj: any, conditions: RuleCondition[], logic: string = "all") {
+  const results = conditions.map((condition) => {
+    const value = obj[condition.metric];
+    return evaluateSingleCondition(value, condition.operator, condition.value);
+  });
+
+  return logic === "all" ? results.every((r) => r) : results.some((r) => r);
+}
+
+// Helper: Check if action should execute now
+function shouldExecuteNow(executeAt: string) {
+  const now = new Date();
+  const [hours, minutes] = executeAt.split(":").map(Number);
+  const targetTime = new Date();
+  targetTime.setHours(hours, minutes, 0, 0);
+
+  // Execute if within 5 minutes of target time
+  const diff = Math.abs(now.getTime() - targetTime.getTime());
+  return diff < 5 * 60 * 1000;
+}
+
+// ✅ NEW: Check execution history to prevent infinite loops
+async function checkExecutionHistory(
+  ruleId: number,
+  objectId: string,
+  objectType: string,
+  userId: string,
+  actionType: string,
+  advancedSettings: any
+): Promise<{ canExecute: boolean; reason?: string; executionCount?: number }> {
+  try {
+    // Get execution history for this rule + object
+    const { data: existingExecution, error } = await supabase
+      .from('automation_rule_object_executions')
+      .select('*')
+      .eq('rule_id', ruleId)
+      .eq('object_id', objectId)
+      .eq('user_id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('[execution-history] Error fetching history:', error);
+      // Allow execution if we can't check history (fail open)
+      return { canExecute: true };
+    }
+
+    // ✅ Bypass history check if manual run
+    if (advancedSettings?.manualRun) {
+      console.log('[execution-history] ⏩ Manual run detected - bypassing history check');
+      return { canExecute: true, executionCount: existingExecution?.execution_count || 0 };
+    }
+
+    if (!existingExecution) {
+      // First time executing on this object
+      console.log('[execution-history] ✅ First execution for object:', objectId);
+      return { canExecute: true, executionCount: 0 };
+    }
+
+    // Check max executions limit
+    const maxExecutions = advancedSettings?.maxExecutionsPerObject || 1;
+    if (existingExecution.execution_count >= maxExecutions) {
+      console.log('[execution-history] 🔴 Max executions reached:', {
+        objectId,
+        currentCount: existingExecution.execution_count,
+        maxAllowed: maxExecutions
+      });
+      return {
+        canExecute: false,
+        reason: `Đã đạt giới hạn ${maxExecutions} lần thực thi cho object này`,
+        executionCount: existingExecution.execution_count
+      };
+    }
+
+    // Check cooldown period
+    const cooldownHours = advancedSettings?.cooldownHours || 24;
+    const lastExecutedAt = new Date(existingExecution.last_executed_at);
+    const hoursSinceLastExecution = (Date.now() - lastExecutedAt.getTime()) / (1000 * 60 * 60);
+
+    if (hoursSinceLastExecution < cooldownHours) {
+      const hoursRemaining = (cooldownHours - hoursSinceLastExecution).toFixed(1);
+      console.log('[execution-history] ⏱️ Cooldown period active:', {
+        objectId,
+        lastExecuted: lastExecutedAt.toISOString(),
+        hoursSince: hoursSinceLastExecution.toFixed(1),
+        cooldownRequired: cooldownHours,
+        hoursRemaining
+      });
+      return {
+        canExecute: false,
+        reason: `Cần chờ thêm ${hoursRemaining} giờ trước khi thực thi lại (cooldown: ${cooldownHours}h)`,
+        executionCount: existingExecution.execution_count
+      };
+    }
+
+    console.log('[execution-history] ✅ Can execute (within limits):', {
+      objectId,
+      executionCount: existingExecution.execution_count,
+      maxExecutions,
+      hoursSinceLastExecution: hoursSinceLastExecution.toFixed(1),
+      cooldownHours
+    });
+
+    return { canExecute: true, executionCount: existingExecution.execution_count };
+  } catch (error) {
+    console.error('[execution-history] Unexpected error:', error);
+    // Fail open - allow execution if checking fails
+    return { canExecute: true };
+  }
+}
+
+// ✅ NEW: Record execution in history
+async function recordExecution(
+  ruleId: number,
+  objectId: string,
+  objectType: string,
+  userId: string,
+  actionType: string,
+  budgetBefore: number,
+  budgetAfter: number,
+  metadata: any = {}
+): Promise<void> {
+  try {
+    // First, check if record exists to get current execution_count
+    const { data: existingRecord } = await supabase
+      .from('automation_rule_object_executions')
+      .select('execution_count')
+      .eq('rule_id', ruleId)
+      .eq('object_id', objectId)
+      .eq('user_id', userId)
+      .single();
+
+    const newExecutionCount = (existingRecord?.execution_count || 0) + 1;
+
+    // Upsert with incremented count
+    const { error } = await supabase
+      .from('automation_rule_object_executions')
+      .upsert({
+        rule_id: ruleId,
+        object_id: objectId,
+        object_type: objectType,
+        user_id: userId,
+        execution_count: newExecutionCount,
+        last_executed_at: new Date().toISOString(),
+        last_action_type: actionType,
+        last_budget_before: budgetBefore,
+        last_budget_after: budgetAfter,
+        metadata
+      }, {
+        onConflict: 'rule_id,object_id,user_id',
+        ignoreDuplicates: false
+      });
+
+    if (error) {
+      console.error('[execution-history] Error recording execution:', error);
+    } else {
+      console.log('[execution-history] ✅ Execution recorded:', {
+        ruleId,
+        objectId,
+        executionCount: newExecutionCount,
+        actionType,
+        budgetChange: `${budgetBefore.toLocaleString('vi-VN')}₫ → ${budgetAfter.toLocaleString('vi-VN')}₫`
+      });
+    }
+  } catch (error) {
+    console.error('[execution-history] Unexpected error recording execution:', error);
+  }
+}
+
+// Helper: Get currency settings
+function getCurrencySettings(currency: string) {
+  const upper = currency.toUpperCase();
+  if (upper === 'VND') {
+    return {
+      minDaily: 50000,
+      symbol: '₫',
+      locale: 'vi-VN'
+    };
+  } else if (upper === 'USD') {
+    return {
+      minDaily: 5, // $5 safety min
+      symbol: '$',
+      locale: 'en-US'
+    };
+  } else {
+    // Default fallback (treat as units)
+    return {
+      minDaily: 1,
+      symbol: upper,
+      locale: 'en-US'
+    };
+  }
+}
+
+// Helper: Update budget for a specific object (campaign, adset, or ad)
+async function updateBudgetForObject(
+  objectId: string,
+  objectType: 'campaign' | 'adset' | 'ad',
+  action: RuleAction,
+  token: string,
+  advancedSettings: any,
+  currency: string = 'VND' // ✅ Added currency param
+): Promise<any> {
+  const url = `https://graph.facebook.com/v18.0/${objectId}`;
+
+  // Fetch current budget
+  const currentResponse = await fetch(`${url}?fields=daily_budget,lifetime_budget,name&access_token=${token}`);
+  const currentData = await currentResponse.json();
+
+  const currentBudget = parseFloat(currentData.daily_budget || currentData.lifetime_budget || 0);
+  const budgetMode = currentData.daily_budget ? 'daily_budget' : 'lifetime_budget';
+  const currencySettings = getCurrencySettings(currency);
+
+  console.log('[execute-automation-rule] 💰 Current budget:', {
+    objectType,
+    objectId,
+    objectName: currentData.name,
+    currentBudget: `${currentBudget.toLocaleString(currencySettings.locale)}${currencySettings.symbol}`,
+    budgetMode,
+    currency
+  });
+
+  // Calculate new budget
+  let newBudget: number;
+  const actionBudgetMode = action.budgetMode || "percentage";
+
+  if (actionBudgetMode === "absolute") {
+    const amount = (action.value as number) || 0;
+    newBudget = action.type === "increase_budget" ? currentBudget + amount : currentBudget - amount;
+  } else {
+    const multiplier = action.type === "increase_budget"
+      ? 1 + (action.value as number) / 100
+      : 1 - (action.value as number) / 100;
+    newBudget = currentBudget * multiplier;
+  }
+
+  newBudget = Math.round(newBudget);
+
+  console.log('[execute-automation-rule] 📊 Budget calculation:', {
+    action: action.type,
+    budgetMode: actionBudgetMode,
+    value: action.value,
+    currentBudget: `${currentBudget.toLocaleString(currencySettings.locale)}${currencySettings.symbol}`,
+    newBudget: `${newBudget.toLocaleString(currencySettings.locale)}${currencySettings.symbol}`,
+    increase: `${(newBudget - currentBudget).toLocaleString(currencySettings.locale)}${currencySettings.symbol}`
+  });
+
+  // Apply minimum budget check
+  // Note: Lifetime budget minimums are higher, but for now we use daily min as baseline safety
+  if (newBudget < currencySettings.minDaily) {
+    console.log(`[execute-automation-rule] ⚠️ New budget ${newBudget} below minimum, adjusting to ${currencySettings.minDaily}`);
+    newBudget = currencySettings.minDaily;
+  }
+
+  // Apply safety checks
+  // If maxBudgetDailySpend is not set, default to 10x min budget or 5,000,000 VND / 200 USD
+  const defaultMax = currency === 'VND' ? 5000000 : 200;
+  const maxBudget = advancedSettings.maxBudgetDailySpend || defaultMax;
+
+  if (advancedSettings.enableSafeGuards && newBudget > maxBudget) {
+    throw new Error(`New budget ${newBudget.toLocaleString(currencySettings.locale)}${currencySettings.symbol} exceeds maximum ${maxBudget.toLocaleString(currencySettings.locale)}${currencySettings.symbol}`);
+  }
+
+  console.log(`[execute-automation-rule] ✅ Final new budget: ${newBudget.toLocaleString(currencySettings.locale)}${currencySettings.symbol} (was ${currentBudget.toLocaleString(currencySettings.locale)}${currencySettings.symbol})`);
+
+  // Update via Facebook API
+  const payload: any = { access_token: token };
+
+  if (budgetMode === 'daily_budget') {
+    payload.daily_budget = newBudget;
+  } else {
+    payload.lifetime_budget = newBudget;
+  }
+
+  console.log(`[execute-automation-rule] 📤 Sending budget update to Facebook:`, {
+    url,
+    payload: { ...payload, access_token: 'HIDDEN' }
+  });
+
+  const budgetResponse = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const result = await budgetResponse.json();
+
+  console.log(`[execute-automation-rule] 📥 Facebook API Response:`, JSON.stringify(result));
+
+  if (!budgetResponse.ok || result.error) {
+    console.error('[execute-automation-rule] ❌ Facebook API Error:', result.error);
+    throw new Error(`Facebook API Error: ${result.error?.message || 'Unknown error'} (Code: ${result.error?.code})`);
+  }
+
+  // Return both the result and budget info for execution tracking
+  return {
+    ...result,
+    budgetBefore: currentBudget,
+    budgetAfter: newBudget,
+    objectName: currentData.name
+  };
+}
+
+// Helper: Execute action via Facebook API
+async function executeAction(
+  action: RuleAction,
+  objectId: string,
+  token: string,
+  advancedSettings: any,
+  rule: any,
+  matchedObject: any,
+  currency: string = 'VND' // ✅ Added currency param
+) {
+  const url = `https://graph.facebook.com/v18.0/${objectId}`;
+
+  // ✅ Check token
+  if (!token) {
+    console.error('[execute-automation-rule] ❌ Missing access token');
+    throw new Error('Missing Facebook access token');
+  }
+  console.log('[execute-automation-rule] 🔑 Access token present (length: ' + token.length + ')');
+
+  // Check dry run mode
+  if (advancedSettings.enableDryRun) {
+    console.log(`[DRY RUN] Would execute ${action.type} on ${objectId}`);
+
+    // ✅ Record dry run execution
+    await recordExecution(
+      rule.Id,
+      objectId,
+      rule.scope,
+      rule.user_id || 'test-user-001',
+      action.type,
+      0, // No budget change
+      0,
+      {
+        dryRun: true,
+        message: "Dry run mode - no actual changes made",
+        objectName: matchedObject.name || matchedObject.campaign_name || matchedObject.adset_name || matchedObject.ad_name
+      }
+    );
+
+    return { dryRun: true, message: "Dry run mode - no actual changes made" };
+  }
+
+  switch (action.type) {
+    case "turn_off":
+      const offResponse = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "PAUSED",
+          access_token: token,
+        }),
+      });
+      return await offResponse.json();
+
+    case "turn_on":
+      const onResponse = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "ACTIVE",
+          access_token: token,
+        }),
+      });
+      return await onResponse.json();
+
+    case "increase_budget":
+    case "decrease_budget":
+      console.log('[execute-automation-rule] ✅ Action increase_budget/decrease_budget:', {
+        objectId,
+        campaignId: matchedObject.campaign_id || matchedObject.id,
+        actionType: action.type,
+        value: action.value,
+        budgetMode: action.budgetMode,
+        ruleScope: rule.scope
+      });
+
+      // Determine target type based on rule scope
+      const isCampaignScope = rule.scope === 'campaign';
+      const targetCampaignId = matchedObject.campaign_id || matchedObject.id;
+
+      // Step 1: Check campaign budget type
+      const campaignUrl = `https://graph.facebook.com/v18.0/${targetCampaignId}`;
+      const campaignCheckResponse = await fetch(
+        `${campaignUrl}?fields=daily_budget,lifetime_budget,name&access_token=${token}`
+      );
+      const campaignCheckData = await campaignCheckResponse.json();
+      const campaignBudget = parseFloat(campaignCheckData.daily_budget || campaignCheckData.lifetime_budget || 0);
+      const usesCBO = campaignBudget > 0;
+
+      const currencySettings = getCurrencySettings(currency);
+
+      console.log('[execute-automation-rule] 💰 Campaign budget check:', {
+        campaignId: targetCampaignId,
+        campaignName: campaignCheckData.name,
+        campaignBudget: `${campaignBudget.toLocaleString(currencySettings.locale)}${currencySettings.symbol}`,
+        usesCBO,
+        ruleScope: rule.scope,
+        currency
+      });
+
+      // Step 2: Handle based on budget type and scope
+      if (usesCBO) {
+        // ✅ Campaign uses CBO
+        if (isCampaignScope) {
+          // Update campaign budget directly
+          console.log('[execute-automation-rule] ✅ Campaign uses CBO, updating campaign budget');
+          const result = await updateBudgetForObject(
+            targetCampaignId,
+            'campaign',
+            action,
+            token,
+            advancedSettings,
+            currency // ✅ Pass currency
+          );
+
+          // ✅ Record execution history
+          if (result.budgetBefore !== undefined && result.budgetAfter !== undefined) {
+            await recordExecution(
+              rule.Id,
+              targetCampaignId,
+              'campaign',
+              rule.user_id || 'test-user-001',
+              action.type,
+              result.budgetBefore,
+              result.budgetAfter,
+              { objectName: result.objectName }
+            );
+          }
+
+          return result;
+        } else {
+          // User selected adset scope but campaign uses CBO
+          throw new Error(
+            `❌ Campaign "${campaignCheckData.name}" đang dùng Campaign Budget Optimization (CBO).\n\n` +
+            `📌 Vui lòng đổi rule scope thành "Campaign" thay vì "Ad Set" để điều chỉnh ngân sách.`
+          );
+        }
+      } else {
+        // ❌ Campaign uses Adset Budget
+        if (isCampaignScope) {
+          // 🔴 CRITICAL: Reject to prevent multiplying budget across all adsets
+          throw new Error(
+            `❌ Không thể tăng/giảm ngân sách cho campaign "${campaignCheckData.name}" vì đang dùng Adset Budget.\n\n` +
+            `⚠️ CẢNH BÁO: Nếu rule chạy với scope "Campaign", ngân sách sẽ tăng CHO MỖI adset active, ` +
+            `dẫn đến tổng ngân sách tăng gấp nhiều lần (ví dụ: 9 adsets × 65k × 1.2 = 702k).\n\n` +
+            `📌 Để tránh vấn đề này, vui lòng:\n` +
+            `1️⃣ Đổi rule scope thành "Ad Set" và gắn label cho các adset cụ thể bạn muốn điều chỉnh\n` +
+            `2️⃣ Hoặc chuyển campaign sang Campaign Budget Optimization (CBO) trong Facebook Ads Manager`
+          );
+        } else {
+          // ✅ User correctly selected adset scope → update this specific adset
+          console.log('[execute-automation-rule] ✅ Campaign uses Adset Budget, updating specific adset');
+          const result = await updateBudgetForObject(
+            objectId,
+            'adset',
+            action,
+            token,
+            advancedSettings,
+            currency // ✅ Pass currency
+          );
+
+          // ✅ Record execution history
+          if (result.budgetBefore !== undefined && result.budgetAfter !== undefined) {
+            await recordExecution(
+              rule.Id,
+              objectId,
+              'adset',
+              rule.user_id || 'test-user-001',
+              action.type,
+              result.budgetBefore,
+              result.budgetAfter,
+              { objectName: result.objectName, campaignId: targetCampaignId }
+            );
+          }
+
+          return result;
+        }
+      }
+
+    default:
+      throw new Error(`Unknown action type: ${action.type}`);
+  }
+}
+
+// ==========================================
+// 🧩 HELPER FUNCTIONS (Restored)
+// ==========================================
+
+function getDateRange(timeRange: string, timezone: string) {
+  const now = new Date();
+  const options: Intl.DateTimeFormatOptions = { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' };
+  const formatter = new Intl.DateTimeFormat('en-CA', options); // YYYY-MM-DD format
+
+  const getDateString = (date: Date) => formatter.format(date);
+
+  let startDate = new Date(now);
+  let endDate = new Date(now);
+
+  switch (timeRange) {
+    case 'today':
+      // startDate = endDate = today
+      break;
+    case 'yesterday':
+      startDate.setDate(now.getDate() - 1);
+      endDate.setDate(now.getDate() - 1);
+      break;
+    case 'last_3d':
+      startDate.setDate(now.getDate() - 2); // Today + 2 days back = 3 days
+      break;
+    case 'last_7d':
+      startDate.setDate(now.getDate() - 6);
+      break;
+    case 'last_14d':
+      startDate.setDate(now.getDate() - 13);
+      break;
+    case 'last_30d':
+      startDate.setDate(now.getDate() - 29);
+      break;
+    case 'this_month':
+      startDate.setDate(1);
+      break;
+    case 'last_month':
+      startDate.setMonth(now.getMonth() - 1);
+      startDate.setDate(1);
+      endDate.setDate(0); // Last day of previous month
+      break;
+    default:
+      // Default to today
+      break;
+  }
+
+  return {
+    startDate: getDateString(startDate),
+    endDate: getDateString(endDate)
+  };
+}
+
+function getCurrencySettings(currency: string) {
+  const settings: Record<string, { symbol: string; locale: string }> = {
+    'VND': { symbol: '₫', locale: 'vi-VN' },
+    'USD': { symbol: '$', locale: 'en-US' },
+    'EUR': { symbol: '€', locale: 'de-DE' },
+  };
+  return settings[currency] || { symbol: '', locale: 'en-US' };
+}
+
+async function updateBudgetForObject(
+  objectId: string,
+  objectType: 'campaign' | 'adset',
+  action: RuleAction,
+  token: string,
+  advancedSettings: any,
+  currency: string
+) {
+  const url = `https://graph.facebook.com/v18.0/${objectId}`;
+
+  // 1. Fetch current budget
+  const response = await fetchWithTimeout(`${url}?fields=daily_budget,lifetime_budget,name`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch budget for ${objectType} ${objectId}`);
+  }
+
+  const data = await response.json();
+  const currentDaily = data.daily_budget ? parseInt(data.daily_budget) : 0;
+  const currentLifetime = data.lifetime_budget ? parseInt(data.lifetime_budget) : 0;
+  const isDaily = currentDaily > 0;
+  const currentBudget = isDaily ? currentDaily : currentLifetime;
+
+  if (currentBudget === 0) {
+    throw new Error(`Budget is 0 or not set for ${objectType} ${objectId}`);
+  }
+
+  // 2. Calculate new budget
+  let newBudget = currentBudget;
+  const value = Number(action.value);
+
+  if (action.budgetMode === 'percentage') {
+    const multiplier = 1 + (value / 100);
+    newBudget = action.type === 'increase_budget'
+      ? currentBudget * multiplier
+      : currentBudget / multiplier; // Decrease: budget / 1.1 for 10%
+
+    // For decrease, usually it's budget * (1 - percent/100) but "decrease by 10%" often means 90% of original.
+    // If action.value is 10 (%), increase is * 1.1. Decrease is * 0.9.
+    if (action.type === 'decrease_budget') {
+      newBudget = currentBudget * (1 - (value / 100));
+    }
+  } else {
+    // Absolute
+    newBudget = action.type === 'increase_budget'
+      ? currentBudget + value
+      : currentBudget - value;
+  }
+
+  newBudget = Math.round(newBudget);
+
+  // 3. Validate limits (Min/Max)
+  // Facebook min for VND is usually ~23,000. Let's assume 20000 safe.
+  if (newBudget < 20000 && currency === 'VND') newBudget = 20000;
+
+  // Check user defined limits
+  if (advancedSettings?.maxBudget && newBudget > advancedSettings.maxBudget) {
+    newBudget = advancedSettings.maxBudget;
+  }
+  if (advancedSettings?.minBudget && newBudget < advancedSettings.minBudget) {
+    newBudget = advancedSettings.minBudget;
+  }
+
+  console.log(`[execute-automation-rule] 🧮 Budget Update: ${currentBudget} -> ${newBudget} (${action.type})`);
+
+  // 4. Update
+  const updatePayload: any = {};
+  if (isDaily) updatePayload.daily_budget = newBudget;
+  else updatePayload.lifetime_budget = newBudget;
+
+  const updateResponse = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...updatePayload,
+      access_token: token
+    })
+  });
+
+  if (!updateResponse.ok) {
+    const err = await updateResponse.json();
+    throw new Error(`Facebook API Error: ${err.error?.message || 'Unknown error'}`);
+  }
+
+  return {
+    success: true,
+    budgetBefore: currentBudget,
+    budgetAfter: newBudget,
+    objectName: data.name
+  };
+}
+
+async function recordExecution(
+  ruleId: number,
+  objectId: string,
+  objectType: string,
+  userId: string,
+  actionType: string,
+  budgetBefore: number,
+  budgetAfter: number,
+  metadata: any
+) {
+  try {
+    const logData = {
+      rule_id: ruleId,
+      object_id: objectId,
+      object_type: objectType,
+      user_id: userId,
+      action_type: actionType,
+      executed_at: new Date().toISOString(),
+      status: 'success',
+      details: JSON.stringify({
+        budget_before: budgetBefore,
+        budget_after: budgetAfter,
+        ...metadata
+      })
+    };
+
+    await fetchWithTimeout(`${NOCODB_API_URL}/api/v2/tables/${TABLES.AUTOMATION_RULE_EXECUTION_LOGS}/records`, {
+      method: 'POST',
+      headers: getNocoDBHeaders(),
+      body: JSON.stringify(logData)
+    });
+  } catch (e) {
+    console.error('[execute-automation-rule] ⚠️ Failed to record execution log:', e);
+  }
+}
+
+async function fetchWithTimeout(resource: string, options: any = {}) {
+  const { timeout = 8000 } = options;
+
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(resource, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
+

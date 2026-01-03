@@ -78,13 +78,28 @@ export const categoriesApi = {
 
     create: async (data) => {
         await initNocoDB();
-        return nocoApiCall(`/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Categories}`, {
+        // Generate RecordId from name (slug format)
+        const recordId = data.name.toLowerCase().trim()
+            .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, 'a')
+            .replace(/[èéẹẻẽêềếệểễ]/g, 'e')
+            .replace(/[ìíịỉĩ]/g, 'i')
+            .replace(/[òóọỏõôồốộổỗơờớợởỡ]/g, 'o')
+            .replace(/[ùúụủũưừứựửữ]/g, 'u')
+            .replace(/[ỳýỵỷỹ]/g, 'y')
+            .replace(/đ/g, 'd')
+            .replace(/[^a-z0-9]/g, '_')
+            .replace(/_+/g, '_');
+
+        const result = await nocoApiCall(`/db/data/noco/${PROJECT_ID}/${TABLE_IDS.Categories}`, {
             method: 'POST',
             body: JSON.stringify({
+                RecordId: recordId,
                 Name: data.name,
                 Icon: data.icon || '📁'
             })
         });
+
+        return { id: recordId, name: data.name, icon: data.icon || '📁', ...result };
     },
 
     update: async (id, data) => {
@@ -117,13 +132,8 @@ export const categoriesApi = {
         if (existing) {
             return existing;
         }
-        // Create new category
-        const created = await categoriesApi.create({ name: name.trim(), icon: '📁' });
-        return {
-            id: created.Id || created.id,
-            name: name.trim(),
-            icon: '📁'
-        };
+        // Create new category (create now returns proper id)
+        return await categoriesApi.create({ name: name.trim(), icon: '📁' });
     }
 };
 

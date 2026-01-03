@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Facebook Post Extractor</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #fff;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #a0aec0;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      color: #fff;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+
+    input:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+    }
+
+    button {
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      color: #fff;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      width: 100%;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .result {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 8px;
+      font-family: 'Consolas', monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .result.success {
+      background: rgba(72, 187, 120, 0.2);
+      border: 1px solid rgba(72, 187, 120, 0.4);
+    }
+
+    .result.error {
+      background: rgba(245, 101, 101, 0.2);
+      border: 1px solid rgba(245, 101, 101, 0.4);
+    }
+
+    .examples {
+      display: grid;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .example-btn {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.2s;
+      text-align: left;
+    }
+
+    .example-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .example-label {
+      color: #a0aec0;
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #fff;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 8px;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>🔍 Facebook Post Extractor Test</h1>
+
+    <div class="card">
+      <label>Facebook URL hoặc Post ID:</label>
+      <input type="text" id="input" placeholder="https://www.facebook.com/share/r/16qhBd6HQ7/">
+
+      <label>Page ID (optional):</label>
+      <input type="text" id="pageId" placeholder="303536179517888">
+
+      <label>Access Token (optional - for username lookup):</label>
+      <input type="text" id="token" placeholder="Your access token...">
+
+      <button id="testBtn" onclick="testFunction()">
+        🚀 Test Extractor
+      </button>
+
+      <div class="examples">
+        <div class="example-label">📋 Example URLs (click to use):</div>
+        <div class="example-btn" onclick="setExample('https://www.facebook.com/share/r/16qhBd6HQ7/')">
+          Share Reel: /share/r/16qhBd6HQ7/
+        </div>
+        <div class="example-btn" onclick="setExample('https://www.facebook.com/share/p/16VgwQQjBR/')">
+          Share Post: /share/p/16VgwQQjBR/
+        </div>
+        <div class="example-btn" onclick="setExample('https://www.facebook.com/reel/4341199392781028')">
+          Reel: /reel/4341199392781028
+        </div>
+        <div class="example-btn"
+          onclick="setExample('https://www.facebook.com/303536179517888/posts/122191948712331398')">
+          Post: /posts/122191948712331398
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>📊 Result:</label>
+      <div id="result" class="result" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://jtaekxrkubhwtqgodvtx.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0YWVreHJrdWJod3RxZ29kdnR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MDcxMTYsImV4cCI6MjA3OTI4MzExNn0.iRHg-xMZ1i_qb0xnQ6vDivcFEEdrpYb0Z6cSkgOLLyU';
+
+    function setExample(url) {
+      document.getElementById('input').value = url;
+    }
+
+    async function testFunction() {
+      const input = document.getElementById('input').value.trim();
+      const pageId = document.getElementById('pageId').value.trim();
+      const token = document.getElementById('token').value.trim();
+      const resultEl = document.getElementById('result');
+      const btn = document.getElementById('testBtn');
+
+      if (!input) {
+        alert('Vui lòng nhập URL hoặc Post ID');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Đang xử lý...';
+      resultEl.style.display = 'block';
+      resultEl.className = 'result';
+      resultEl.textContent = 'Loading...';
+
+      try {
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/facebook-post-extractor`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            facebook_post_input: input,
+            page_id: pageId || undefined,
+            access_token: token || undefined,
+          }),
+        });
+
+        const data = await response.json();
+
+        resultEl.className = 'result ' + (data.success ? 'success' : 'error');
+        resultEl.textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        resultEl.className = 'result error';
+        resultEl.textContent = 'Error: ' + error.message;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '🚀 Test Extractor';
+      }
+    }
+  </script>
+</body>
+
+</html>
