@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { categoriesApi } from '../services/api';
 
 const menuItems = [
@@ -74,9 +74,20 @@ const Icons = {
 
 export default function Sidebar({ activeCategory, onCategoryChange, isOpen, onClose }) {
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // Handle category click - navigate to Gallery if on My Designs page
+  const handleCategoryClick = (categoryId) => {
+    onCategoryChange(String(categoryId));
+    // If on My Designs page, navigate to Gallery
+    if (location.pathname === '/my-designs') {
+      navigate('/');
+    }
+  };
 
   // Load categories from Backend API with localStorage fallback
   const [dynamicCategories, setDynamicCategories] = useState([]);
+
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -171,7 +182,7 @@ export default function Sidebar({ activeCategory, onCategoryChange, isOpen, onCl
           {allCategories.map((cat) => (
             <button
               key={cat.id}
-              onClick={() => onCategoryChange(String(cat.id))}
+              onClick={() => handleCategoryClick(cat.id)}
               className={`menu-item ${String(activeCategory) === String(cat.id) ? 'active' : ''}`}
             >
               <span>{cat.name || cat.label}</span>
