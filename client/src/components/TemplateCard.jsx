@@ -18,7 +18,7 @@ export default function TemplateCard({ template, onSelect, onToggleFavorite, isF
         >
             {/* Image */}
             <div className="card-image">
-                <img src={template.image} alt={template.title} />
+                <img src={template.image} alt={template.title} referrerPolicy="no-referrer" />
 
                 {/* Favorite Button */}
                 <button
@@ -45,7 +45,7 @@ export default function TemplateCard({ template, onSelect, onToggleFavorite, isF
             {/* Popup Image on Hover - Rendered via Portal */}
             {isHovered && createPortal(
                 <div className="image-popup-container">
-                    <img className="image-popup" src={template.image} alt={template.title} />
+                    <img className="image-popup" src={template.image} alt={template.title} referrerPolicy="no-referrer" />
                 </div>,
                 document.body
             )}
