@@ -46,8 +46,8 @@ export default function Gallery({ searchValue, activeCategory }) {
             // Format server templates
             const formattedServerTemplates = serverTemplates.map(t => ({
                 ...t,
-                // Handle image path from server
-                image: t.image_path ? getImageUrl(t.image_path) : t.image,
+                // Convert image URLs (especially Google Drive links)
+                image: getImageUrl(t.image),
                 // Normalize category field - server uses category_id
                 category: t.category_id || t.category,
                 users: 0,
