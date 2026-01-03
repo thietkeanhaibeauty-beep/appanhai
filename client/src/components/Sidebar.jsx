@@ -2,10 +2,19 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { categoriesApi } from '../services/api';
+import { useFeatures } from '../hooks/useFeatures';
+import { useUserRole } from '../hooks/useUserRole';
 
+// Regular menu items (visible to all users)
 const menuItems = [
   { id: 'gallery', label: 'Thư Viện Template', icon: 'grid', path: '/' },
   { id: 'my-designs', label: 'Thiết Kế Của Tôi', icon: 'folder', path: '/my-designs' },
+];
+
+// Admin-only menu items (require specific features)
+const adminMenuItems = [
+  { id: 'template', label: 'Tạo Template Mới', icon: 'settings', path: '/template', featureKey: 'manage_api_keys' },
+  { id: 'api-keys', label: 'API Keys', icon: 'settings', path: '/api-keys', featureKey: 'manage_api_keys' },
 ];
 
 const categories = [
@@ -75,6 +84,8 @@ const Icons = {
 export default function Sidebar({ activeCategory, onCategoryChange, isOpen, onClose }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { hasFeature } = useFeatures();
+  const { isAdmin } = useUserRole();
 
   // Handle category click - navigate to Gallery if on My Designs page
   const handleCategoryClick = (categoryId) => {
@@ -174,6 +185,25 @@ export default function Sidebar({ activeCategory, onCategoryChange, isOpen, onCl
           ))}
         </nav>
       </div>
+
+      {/* Admin Section - Show if user has admin role OR admin features */}
+      {(isAdmin || adminMenuItems.some(item => hasFeature(item.featureKey))) && (
+        <div className="sidebar-section">
+          <span className="section-label">QUẢN TRỊ</span>
+          <nav className="menu-list">
+            {adminMenuItems.map((item) => (
+              <Link
+                key={item.id}
+                to={item.path}
+                className={`menu-item ${location.pathname === item.path ? 'active' : ''}`}
+              >
+                {Icons[item.icon]}
+                <span>{item.label}</span>
+              </Link>
+            ))}
+          </nav>
+        </div>
+      )}
 
       {/* Categories Section */}
       <div className="sidebar-section">

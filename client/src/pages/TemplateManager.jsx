@@ -750,14 +750,6 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                     Quay lại
                 </button>
                 <h1 className="tm-title">Template</h1>
-                <button className="settings-btn" onClick={() => setShowSettings(true)}>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    Cài đặt API
-                    {hasApiKey && <span className="api-status-dot success" />}
-                </button>
             </div>
 
             {/* === NEW: Tab Navigation === */}
@@ -779,29 +771,6 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
             {/* === Tab: Create (original content wrapped) === */}
             {activeTab === 'create' && (
                 <>
-                    {/* Steps indicator */}
-                    <div className="steps-indicator">
-                        <div className={`step ${step >= 1 ? 'active' : ''}`}>
-                            <span className="step-num">1</span>
-                            <span className="step-label">Tải ảnh mẫu</span>
-                        </div>
-                        <div className="step-line" />
-                        <div className={`step ${step >= 2 ? 'active' : ''}`}>
-                            <span className="step-num">2</span>
-                            <span className="step-label">Nhập Prompt</span>
-                        </div>
-                        <div className="step-line" />
-                        <div className={`step ${step >= 3 ? 'active' : ''}`}>
-                            <span className="step-num">3</span>
-                            <span className="step-label">Tùy chỉnh Slots</span>
-                        </div>
-                        <div className="step-line" />
-                        <div className={`step ${step >= 4 ? 'active' : ''}`}>
-                            <span className="step-num">4</span>
-                            <span className="step-label">Lưu Template</span>
-                        </div>
-                    </div>
-
                     {/* Main Content */}
                     <div className="tm-content">
                         {/* Left: Image Preview */}
@@ -912,7 +881,6 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                             {/* Step 2: Prompt Input - Always visible */}
                             <div className="form-block">
                                 <h3 className="block-title">
-                                    <span className="block-num">2</span>
                                     Style Prompt (DNA của Template)
                                     <span className="api-warning" style={{ fontSize: '0.8em', marginLeft: '10px', fontWeight: 'normal' }}>
                                         *Prompt gốc cho AI tạo ảnh
@@ -931,7 +899,6 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
                             <div className="form-block" style={{ padding: '12px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                     <h3 className="block-title" style={{ margin: 0 }}>
-                                        <span className="block-num">3</span>
                                         Slots ({textSlots.length + imageSlots.length + colorSlots.length})
                                     </h3>
                                     <div style={{ display: 'flex', gap: '6px' }}>
@@ -972,10 +939,6 @@ CHÚ Ý: Mã màu HEX phải CHÍNH XÁC từ ảnh thực tế!`
 
                             {/* Step 4: Save Template - with labels */}
                             <div className="form-block" style={{ padding: '12px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                    <span className="block-num">4</span>
-                                    <span style={{ fontWeight: '600', fontSize: '0.9rem' }}>Lưu Template</span>
-                                </div>
                                 <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                                     {/* Tên Template */}
                                     <div style={{ flex: '1', minWidth: '150px' }}>

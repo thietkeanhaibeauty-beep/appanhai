@@ -5,11 +5,15 @@ import TemplateModal from '../components/TemplateModal';
 import CanvasPreview from '../components/CanvasPreview';
 import ApiKeySettings from '../components/ApiKeySettings';
 import { templatesApi, designsApi, getImageUrl } from '../services/api';
+import { useFeatures } from '../hooks/useFeatures';
+import { useUserRole } from '../hooks/useUserRole';
 
 // No more mock templates - only load from NocoDB server
 
 export default function Gallery({ searchValue, activeCategory }) {
     const navigate = useNavigate();
+    const { hasFeature } = useFeatures();
+    const { isAdmin } = useUserRole();
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [allTemplates, setAllTemplates] = useState([]);
@@ -1131,44 +1135,6 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
                     <h1 className="gallery-title">{getTitle()}</h1>
                     <p className="gallery-subtitle">{getSubtitle()}</p>
                 </div>
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                    <button
-                        className="create-template-btn"
-                        onClick={() => navigate('/template')}
-                        title="Tạo Template Mới"
-                        style={{
-                            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                            color: 'white',
-                            border: 'none',
-                            padding: '10px 16px',
-                            borderRadius: '8px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'pointer',
-                            fontWeight: '500',
-                            fontSize: '0.9rem',
-                            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)',
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                        Tạo Template Mới
-                    </button>
-                    <button
-                        className="settings-btn"
-                        onClick={() => setIsSettingsOpen(true)}
-                        title="Cài đặt API Keys"
-                    >
-                        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        API Keys
-                    </button>
-                </div>
             </div>
 
             {/* API Key Settings Modal */}
@@ -1187,21 +1153,23 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
                 ))}
             </div>
 
-            {filteredTemplates.length === 0 && (
-                <div className="no-results">
-                    {activeCategory === 'favorites' ? (
-                        <>
-                            <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ opacity: 0.3, marginBottom: '16px' }}>
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                            </svg>
-                            <p>Chưa có mẫu yêu thích nào</p>
-                            <span style={{ fontSize: '0.9rem', opacity: 0.7 }}>Click vào ngôi sao trên template để thêm vào yêu thích</span>
-                        </>
-                    ) : (
-                        <p>Không tìm thấy template nào</p>
-                    )}
-                </div>
-            )}
+            {
+                filteredTemplates.length === 0 && (
+                    <div className="no-results">
+                        {activeCategory === 'favorites' ? (
+                            <>
+                                <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ opacity: 0.3, marginBottom: '16px' }}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                                </svg>
+                                <p>Chưa có mẫu yêu thích nào</p>
+                                <span style={{ fontSize: '0.9rem', opacity: 0.7 }}>Click vào ngôi sao trên template để thêm vào yêu thích</span>
+                            </>
+                        ) : (
+                            <p>Không tìm thấy template nào</p>
+                        )}
+                    </div>
+                )
+            }
 
             {/* TemplateModal */}
             <TemplateModal
@@ -1217,21 +1185,23 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
             />
 
             {/* Canvas Preview Modal */}
-            {showCanvasPreview && canvasPreviewData && (
-                <CanvasPreview
-                    template={canvasPreviewData.template}
-                    textContent={canvasPreviewData.textContent}
-                    imageContent={canvasPreviewData.imageContent}
-                    colorContent={canvasPreviewData.colorContent}
-                    onClose={() => {
-                        setShowCanvasPreview(false);
-                        setCanvasPreviewData(null);
-                    }}
-                    onDownload={(_imageData) => {
-                        console.log('Design downloaded!');
-                    }}
-                />
-            )}
-        </div>
+            {
+                showCanvasPreview && canvasPreviewData && (
+                    <CanvasPreview
+                        template={canvasPreviewData.template}
+                        textContent={canvasPreviewData.textContent}
+                        imageContent={canvasPreviewData.imageContent}
+                        colorContent={canvasPreviewData.colorContent}
+                        onClose={() => {
+                            setShowCanvasPreview(false);
+                            setCanvasPreviewData(null);
+                        }}
+                        onDownload={(_imageData) => {
+                            console.log('Design downloaded!');
+                        }}
+                    />
+                )
+            }
+        </div >
     );
 }
