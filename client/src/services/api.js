@@ -2,7 +2,7 @@
 // Use environment variables for security
 const NOCODB_URL = import.meta.env.VITE_NOCODB_URL || 'https://db.hpb.edu.vn';
 const NOCODB_TOKEN = import.meta.env.VITE_NOCODB_TOKEN;
-const PROJECT_ID = import.meta.env.VITE_NOCODB_PROJECT_ID || 'pj5m5qf1ys9lzff';
+const PROJECT_ID = import.meta.env.VITE_NOCODB_PROJECT_ID || 'p8xfd6fzun2guxg';
 
 // Table IDs - will be populated on init
 let TABLE_IDS = {
