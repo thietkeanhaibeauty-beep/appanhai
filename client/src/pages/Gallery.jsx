@@ -1237,7 +1237,7 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
         if (activeCategory === 'starred' || !activeCategory) {
             return '⭐ Mẫu Nổi Bật';
         }
-        return 'Thư Viện Template';
+        return 'Thư Viện Câu Lệnh Tạo Ảnh Quảng Cáo';
     };
 
     const getSubtitle = () => {

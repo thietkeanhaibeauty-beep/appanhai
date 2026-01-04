@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../integrations/supabase/client';
+import { initNocoDB, TABLE_IDS, NOCODB_URL, NOCODB_TOKEN } from '../services/api';
 
 /**
  * Hook to manage user subscription state
- * Simplified version for App Chi Nhánh
+ * Now fetches directly from NocoDB for consistent state with UserMenu
  */
 export const useSubscription = () => {
     const { user } = useAuth();
@@ -24,40 +24,52 @@ export const useSubscription = () => {
                 setLoading(true);
                 setError(null);
 
-                // Call Edge Function to get subscription info
-                const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ljpownumtmclnrtnqldt.supabase.co';
-                const { data: { session } } = await supabase.auth.getSession();
+                // Initialize NocoDB to ensure TABLE_IDS are loaded
+                await initNocoDB();
 
-                // For now, just check if user has a subscription via the trial function
-                // In a more complete implementation, you'd have a get-subscription function
+                const tableId = TABLE_IDS.Subscriptions || TABLE_IDS.subscriptions || 'myjov622ntt3j73';
+                const baseUrl = NOCODB_URL || 'https://db.hpb.edu.vn';
+                const token = NOCODB_TOKEN || '1wrsHNcz_FNeptaeMvP7jqrcVpm0GtD_8JScOLGo';
 
-                // Use feature flags to determine if user has active subscription
-                const response = await fetch(`${supabaseUrl}/functions/v1/get-feature-flags`, {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${session?.access_token}`,
-                    },
-                });
+                // Fetch latest subscription for user
+                const response = await fetch(
+                    `${baseUrl}/api/v2/tables/${tableId}/records?where=(user_id,eq,${user.id})&sort=-CreatedAt&limit=1`,
+                    { headers: { 'xc-token': token } }
+                );
+
+                let subData = { isActive: false, tier: 'trial', features: {}, endDate: null };
 
                 if (response.ok) {
                     const data = await response.json();
-                    // If user has features, they have an active subscription
-                    const hasFeatures = data.features && Object.keys(data.features).length > 0;
+                    if (data.list && data.list.length > 0) {
+                        const sub = data.list[0];
+                        const status = sub.status;
+                        const pkgId = sub.package_id;
 
-                    setSubscription({
-                        isActive: hasFeatures,
-                        tier: hasFeatures ? 'trial' : null,
-                        features: data.features || {},
-                    });
-                } else {
-                    setSubscription({ isActive: false, tier: null, features: {} });
+                        // Map package_id to standard tier names if needed
+                        let tier = 'trial';
+                        if (status === 'active') {
+                            tier = pkgId; // 'Starter', 'Pro', 'HocVien'
+                        } else if (status === 'expired') {
+                            tier = 'expired';
+                        }
+
+                        subData = {
+                            isActive: status === 'active',
+                            tier: tier,
+                            features: {}, // Feature flags can be mapped here if needed later
+                            endDate: sub.end_date
+                        };
+                    }
                 }
+
+                setSubscription(subData);
 
             } catch (err) {
                 console.error('Error fetching subscription:', err);
                 setError('Failed to fetch subscription');
-                setSubscription({ isActive: false, tier: null, features: {} });
+                // Default to trial on error to allow basic access
+                setSubscription({ isActive: false, tier: 'trial', features: {} });
             } finally {
                 setLoading(false);
             }
@@ -66,17 +78,16 @@ export const useSubscription = () => {
         fetchSubscription();
     }, [user]);
 
-    // Check if user has active subscription
+    // Check if user has active subscription (for gatekeeping)
     const hasActiveSubscription = subscription?.isActive || false;
 
-    // Check if subscription is trial
-    const isTrial = subscription?.tier === 'trial';
+    // Check if subscription is strictly 'trial' (for showing upgrades/banners)
+    // IMPORTANT: 'Starter', 'Pro', 'HocVien' are NOT trial
+    const isTrial = subscription?.tier === 'trial' || (!subscription?.isActive && subscription?.tier !== 'expired');
 
-    // Check if user can access a feature
     const canAccess = useCallback((feature) => {
-        if (!subscription?.features) return false;
-        const featureData = subscription.features[feature];
-        return featureData?.enabled || false;
+        // Placeholder for feature access logic
+        return true;
     }, [subscription]);
 
     return {

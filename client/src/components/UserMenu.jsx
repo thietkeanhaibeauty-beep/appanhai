@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
+import { initNocoDB, TABLE_IDS, NOCODB_URL, NOCODB_TOKEN } from '../services/api';
+
 export default function UserMenu({ onOpenProfile }) {
     const navigate = useNavigate();
     const { user } = useAuth();
@@ -18,20 +20,39 @@ export default function UserMenu({ onOpenProfile }) {
 
     const fetchUserData = async (userId) => {
         try {
-            const nocodbUrl = 'https://db.hpb.edu.vn';
-            const nocodbToken = '1wrsHNcz_FNeptaeMvP7jqrcVpm0GtD_8JScOLGo';
+            await initNocoDB();
 
-            // Fetch both balance and subscription in parallel
-            const [balanceRes, subRes] = await Promise.all([
+            const baseUrl = NOCODB_URL || 'https://db.hpb.edu.vn';
+            const token = NOCODB_TOKEN || '1wrsHNcz_FNeptaeMvP7jqrcVpm0GtD_8JScOLGo';
+
+            // Dynamic Table IDs
+            // Balance: likely 'Wallets' or 'Users'. Fallback to 'm16...' if not found (as it was working)
+            const balanceTableId = TABLE_IDS.Wallets || TABLE_IDS.wallets || TABLE_IDS.Users || 'm16m58ti6kjlax0';
+
+            // Subscriptions: Fallback to null to avoid 404 if not found
+            const subTableId = TABLE_IDS.Subscriptions || TABLE_IDS.subscriptions;
+
+            const requests = [
                 fetch(
-                    `${nocodbUrl}/api/v2/tables/m16m58ti6kjlax0/records?where=(user_id,eq,${userId})&limit=1`,
-                    { headers: { 'xc-token': nocodbToken } }
-                ),
-                fetch(
-                    `${nocodbUrl}/api/v2/tables/mavg6lv6w75qqfy/records?where=(user_id,eq,${userId})&sort=-CreatedAt&limit=1`,
-                    { headers: { 'xc-token': nocodbToken } }
+                    `${baseUrl}/api/v2/tables/${balanceTableId}/records?where=(user_id,eq,${userId})&limit=1`,
+                    { headers: { 'xc-token': token } }
                 )
-            ]);
+            ];
+
+            if (subTableId) {
+                requests.push(
+                    fetch(
+                        `${baseUrl}/api/v2/tables/${subTableId}/records?where=(user_id,eq,${userId})&sort=-CreatedAt&limit=1`,
+                        { headers: { 'xc-token': token } }
+                    )
+                );
+            } else {
+                console.warn('⚠️ Subscriptions table not found in NocoDB metadata. Skipping fetch.');
+            }
+
+            const responses = await Promise.all(requests);
+            const balanceRes = responses[0];
+            const subRes = subTableId && responses.length > 1 ? responses[1] : null;
 
             // Process balance
             if (balanceRes.ok) {
@@ -93,6 +114,34 @@ export default function UserMenu({ onOpenProfile }) {
                 <div className="header-plan-badge" style={{ background: planInfo.color }}>
                     {planInfo.name}
                 </div>
+                <button
+                    className="header-upgrade-btn"
+                    onClick={() => navigate('/pricing')}
+                    style={{
+                        background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '20px',
+                        padding: '4px 10px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        marginLeft: '8px',
+                        marginRight: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)',
+                        transition: 'transform 0.1s'
+                    }}
+                    onMouseEnter={(e) => e.target.style.transform = 'translateY(-1px)'}
+                    onMouseLeave={(e) => e.target.style.transform = 'translateY(0)'}
+                >
+                    <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                    </svg>
+                    Nâng cấp
+                </button>
                 <div className="header-coin-display">
                     <span className="coin-icon">🪙</span>
                     <span className="coin-value">{coinBalance.toLocaleString()}</span>

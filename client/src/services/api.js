@@ -5,12 +5,24 @@ const NOCODB_TOKEN = import.meta.env.VITE_NOCODB_TOKEN;
 const PROJECT_ID = import.meta.env.VITE_NOCODB_PROJECT_ID || 'p8xfd6fzun2guxg';
 
 // Table IDs - will be populated on init
-let TABLE_IDS = {
+export let TABLE_IDS = {
     Categories: null,
     Templates: null,
     Designs: null,
-    ApiKeys: null
+    ApiKeys: null,
+    UserRoles: null, // Add UserRoles table
+    "User Roles": null,
+    Subscriptions: 'myjov622ntt3j73', // Correct ID for [user_subscriptions]
+    subscriptions: 'myjov622ntt3j73',
+    Wallets: 'm16m58ti6kjlax0',      // Correct ID for [user_balances]
+    wallets: 'm16m58ti6kjlax0',
+    Users: 'm16m58ti6kjlax0',
+    Vouchers: 'mhgqm56k0lobsgn',     // Correct ID for [Vouchers]
+    vouchers: 'mhgqm56k0lobsgn'
 };
+
+// Export configuration
+export { NOCODB_URL, NOCODB_TOKEN, PROJECT_ID };
 
 let isInitialized = false;
 
@@ -40,7 +52,7 @@ async function nocoApiCall(endpoint, options = {}) {
 /**
  * Initialize - Get table IDs from NocoDB
  */
-async function initNocoDB() {
+export async function initNocoDB() {
     if (isInitialized) return TABLE_IDS;
 
     try {
@@ -406,5 +418,4 @@ const api = {
 
 export default api;
 
-// Export init function for manual initialization
-export { initNocoDB };
+
