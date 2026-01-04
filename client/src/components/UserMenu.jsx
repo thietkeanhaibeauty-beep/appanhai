@@ -111,8 +111,15 @@ export default function UserMenu({ onOpenProfile }) {
         <div className="user-menu-container">
             {/* Always visible: Plan Badge + Coin Balance */}
             <div className="header-user-info">
-                <div className="header-plan-badge" style={{ background: planInfo.color }}>
-                    {planInfo.name}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginRight: '5px' }}>
+                    <div className="header-plan-badge" style={{ background: planInfo.color }}>
+                        {planInfo.name}
+                    </div>
+                    {expiryDate && (
+                        <span style={{ fontSize: '9px', color: '#666', marginTop: '2px', whitespace: 'nowrap' }}>
+                            {expiryDate}
+                        </span>
+                    )}
                 </div>
                 <button
                     className="header-upgrade-btn"
