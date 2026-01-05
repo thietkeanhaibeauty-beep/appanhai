@@ -18,6 +18,11 @@ const AdminVouchers = () => {
     const [redemptions, setRedemptions] = useState([]);
     const [loadingRedemptions, setLoadingRedemptions] = useState(false);
 
+    // Add phones section
+    const [addPhones, setAddPhones] = useState('');
+    const [addingPhones, setAddingPhones] = useState(false);
+    const [addPhoneMsg, setAddPhoneMsg] = useState({ type: '', text: '' });
+
     // Load all vouchers on mount
     useEffect(() => {
         loadVouchers();
@@ -73,6 +78,74 @@ const AdminVouchers = () => {
     const getPhoneStatus = (phone) => {
         const redeemed = redemptions.find(r => r.phone === phone);
         return redeemed ? { status: 'redeemed', data: redeemed } : { status: 'pending' };
+    };
+
+    // Handle adding more phones to existing voucher
+    const handleAddPhones = async () => {
+        if (!selectedVoucher || !addPhones.trim()) {
+            setAddPhoneMsg({ type: 'error', text: 'Vui lòng nhập SĐT cần thêm' });
+            return;
+        }
+
+        setAddingPhones(true);
+        setAddPhoneMsg({ type: '', text: '' });
+
+        try {
+            await initNocoDB();
+            const baseUrl = NOCODB_URL || 'https://db.hpb.edu.vn';
+            const token = NOCODB_TOKEN || '1wrsHNcz_FNeptaeMvP7jqrcVpm0GtD_8JScOLGo';
+            const voucherTableId = TABLE_IDS.Vouchers || 'mhgqm56k0lobsgn';
+
+            // Parse new phones
+            const newPhones = addPhones
+                .split(/[\n,;]+/)
+                .map(p => p.trim())
+                .filter(p => p.length > 0);
+
+            if (newPhones.length === 0) {
+                throw new Error('Danh sách SĐT không hợp lệ');
+            }
+
+            // Get existing phones
+            const existingPhones = selectedVoucher.AllowedPhones
+                ? selectedVoucher.AllowedPhones.split(/[\n,;]+/).map(p => p.trim()).filter(p => p)
+                : [];
+
+            // Merge and dedupe
+            const allPhones = [...new Set([...existingPhones, ...newPhones])];
+            const updatedPhonesStr = allPhones.join(', ');
+
+            // Update voucher
+            const res = await fetch(`${baseUrl}/api/v2/tables/${voucherTableId}/records`, {
+                method: 'PATCH',
+                headers: {
+                    'xc-token': token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    Id: selectedVoucher.Id,
+                    AllowedPhones: updatedPhonesStr
+                })
+            });
+
+            if (!res.ok) {
+                throw new Error('Lỗi khi cập nhật');
+            }
+
+            // Update local state
+            const updatedVoucher = { ...selectedVoucher, AllowedPhones: updatedPhonesStr };
+            setSelectedVoucher(updatedVoucher);
+            setVouchers(vouchers.map(v => v.Id === selectedVoucher.Id ? updatedVoucher : v));
+
+            setAddPhoneMsg({ type: 'success', text: `Đã thêm ${newPhones.length} SĐT thành công!` });
+            setAddPhones('');
+
+        } catch (err) {
+            console.error(err);
+            setAddPhoneMsg({ type: 'error', text: `Lỗi: ${err.message}` });
+        } finally {
+            setAddingPhones(false);
+        }
     };
 
     // Xử lý tạo Voucher Class
@@ -317,6 +390,57 @@ const AdminVouchers = () => {
                                 </div>
                                 <div style={{ marginTop: '15px', fontSize: '14px', color: '#9ca3af' }}>
                                     Tổng: {redemptions.length} / {selectedVoucher.AllowedPhones?.split(/[,;\n]+/).filter(p => p.trim()).length || 0} đã kích hoạt
+                                </div>
+
+                                {/* Add more phones section */}
+                                <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #4b5563' }}>
+                                    <h4 style={{ fontSize: '14px', marginBottom: '10px', color: '#60a5fa' }}>
+                                        ➕ Bổ sung SĐT vào lớp này
+                                    </h4>
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                        <textarea
+                                            placeholder="Nhập SĐT cần thêm...&#10;0912345678&#10;0987654321"
+                                            value={addPhones}
+                                            onChange={e => setAddPhones(e.target.value)}
+                                            style={{
+                                                flex: 1,
+                                                height: '60px',
+                                                padding: '8px',
+                                                borderRadius: '5px',
+                                                border: '1px solid #4b5563',
+                                                backgroundColor: '#111827',
+                                                color: 'white',
+                                                fontSize: '13px'
+                                            }}
+                                        />
+                                        <button
+                                            onClick={handleAddPhones}
+                                            disabled={addingPhones}
+                                            style={{
+                                                padding: '10px 15px',
+                                                backgroundColor: addingPhones ? '#4b5563' : '#10b981',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '5px',
+                                                cursor: addingPhones ? 'not-allowed' : 'pointer',
+                                                fontWeight: 'bold',
+                                                fontSize: '13px'
+                                            }}
+                                        >
+                                            {addingPhones ? 'Đang thêm...' : 'THÊM SĐT'}
+                                        </button>
+                                    </div>
+                                    {addPhoneMsg.text && (
+                                        <div style={{
+                                            marginTop: '8px',
+                                            padding: '8px',
+                                            borderRadius: '5px',
+                                            fontSize: '13px',
+                                            backgroundColor: addPhoneMsg.type === 'error' ? '#7f1d1d' : '#064e3b'
+                                        }}>
+                                            {addPhoneMsg.text}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}

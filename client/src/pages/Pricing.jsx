@@ -53,7 +53,7 @@ const packages = [
 ];
 
 export default function Pricing() {
-    const { hasActiveSubscription, isTrial } = useSubscription();
+    const { subscription, hasActiveSubscription, isTrial } = useSubscription();
     const { user } = useAuth();
     const navigate = useNavigate();
 
@@ -265,68 +265,75 @@ export default function Pricing() {
                     <p>Nâng cấp để mở khóa tất cả tính năng</p>
                 </div>
 
-                {/* Voucher Section */}
+                {/* Voucher Section - Compact */}
                 <div className="voucher-section" style={{
-                    maxWidth: '500px',
-                    margin: '0 auto 40px',
-                    padding: '20px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    margin: '0 auto 30px',
+                    padding: '10px 20px',
                     background: 'white',
-                    borderRadius: '12px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                    textAlign: 'center'
+                    borderRadius: '50px',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+                    left: '50%',
+                    position: 'relative',
+                    transform: 'translateX(-50%)'
                 }}>
-                    <h3 style={{ fontSize: '16px', marginBottom: '15px', color: '#374151' }}>
-                        Kích hoạt gói học viên
-                    </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <input
-                            type="text"
-                            placeholder="Mã lớp (bắt buộc)"
-                            value={voucherCode}
-                            onChange={e => setVoucherCode(e.target.value)}
-                            style={{
-                                padding: '10px 15px',
-                                border: '1px solid #d1d5db',
-                                borderRadius: '8px',
-                                outline: 'none'
-                            }}
-                        />
-                        <input
-                            type="text"
-                            placeholder="Số điện thoại học viên (nếu có)"
-                            value={phoneNumber}
-                            onChange={e => setPhoneNumber(e.target.value)}
-                            style={{
-                                padding: '10px 15px',
-                                border: '1px solid #d1d5db',
-                                borderRadius: '8px',
-                                outline: 'none'
-                            }}
-                        />
-                        <button
-                            onClick={handleRedeem}
-                            disabled={redeemStatus === 'loading'}
-                            style={{
-                                background: '#3b82f6',
-                                color: 'white',
-                                border: 'none',
-                                padding: '12px 20px',
-                                borderRadius: '8px',
-                                cursor: redeemStatus === 'loading' ? 'not-allowed' : 'pointer',
-                                fontWeight: '600'
-                            }}
-                        >
-                            {redeemStatus === 'loading' ? 'Đang xử lý...' : 'Kích hoạt'}
-                        </button>
-                    </div>
+                    <span style={{ fontSize: '13px', color: '#374151', fontWeight: '500' }}>
+                        🎁 Mã khuyến mại:
+                    </span>
+                    <input
+                        type="text"
+                        placeholder="Nhập mã"
+                        value={voucherCode}
+                        onChange={e => setVoucherCode(e.target.value)}
+                        style={{
+                            padding: '8px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            outline: 'none',
+                            width: '120px',
+                            fontSize: '13px'
+                        }}
+                    />
+                    <input
+                        type="text"
+                        placeholder="SĐT (nếu có)"
+                        value={phoneNumber}
+                        onChange={e => setPhoneNumber(e.target.value)}
+                        style={{
+                            padding: '8px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            outline: 'none',
+                            width: '130px',
+                            fontSize: '13px'
+                        }}
+                    />
+                    <button
+                        onClick={handleRedeem}
+                        disabled={redeemStatus === 'loading'}
+                        style={{
+                            background: '#3b82f6',
+                            color: 'white',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '6px',
+                            cursor: redeemStatus === 'loading' ? 'not-allowed' : 'pointer',
+                            fontWeight: '600',
+                            fontSize: '13px',
+                            whiteSpace: 'nowrap'
+                        }}
+                    >
+                        {redeemStatus === 'loading' ? '...' : 'Kích hoạt'}
+                    </button>
                     {redeemMsg && (
-                        <p style={{
-                            marginTop: '10px',
-                            fontSize: '14px',
+                        <span style={{
+                            fontSize: '13px',
                             color: redeemStatus === 'success' ? '#10b981' : redeemStatus === 'error' ? '#ef4444' : '#6b7280'
                         }}>
                             {redeemMsg}
-                        </p>
+                        </span>
                     )}
                 </div>
 
@@ -370,6 +377,6 @@ export default function Pricing() {
                     <Link to="/" className="back-link">← Quay lại trang chủ</Link>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
