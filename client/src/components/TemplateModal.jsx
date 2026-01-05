@@ -33,7 +33,9 @@ const IMAGE_MODELS = {
 export default function TemplateModal({
     template, isOpen, onClose, onGenerate, onSaveTemplate, generatedImage,
     // New props for Gallery enhancements
-    onDelete, onToggleStar, onUpdateCategory, isSuperAdmin, categories = []
+    onDelete, onToggleStar, onUpdateCategory, isSuperAdmin, categories = [],
+    // User info for unlock feature
+    userId, userPackage, onUnlockPrompt
 }) {
     const [activeTab, setActiveTab] = useState('text');
     const [formData, setFormData] = useState({});
@@ -48,6 +50,11 @@ export default function TemplateModal({
     const [isAdvancedMode, setIsAdvancedMode] = useState(false);
     const [customStylePrompt, setCustomStylePrompt] = useState('');
     const [isSaving, setIsSaving] = useState(false); // Validating save state
+
+    // Prompt Unlock State
+    const [isPromptUnlocked, setIsPromptUnlocked] = useState(false);
+    const [unlockLoading, setUnlockLoading] = useState(false);
+    const [unlockInfo, setUnlockInfo] = useState({ used: 0, limit: 0 });
 
     const fileInputRefs = useRef({});
 
@@ -111,8 +118,11 @@ export default function TemplateModal({
             // Reset Advanced Mode
             setIsAdvancedMode(false);
             setCustomStylePrompt(template.stylePrompt || template.style_prompt || '');
+
+            // Reset unlock state - SuperAdmin always unlocked
+            setIsPromptUnlocked(isSuperAdmin || false);
         }
-    }, [template, isOpen, isCustomTemplate]);
+    }, [template, isOpen, isCustomTemplate, isSuperAdmin]);
 
     useEffect(() => {
         if (isOpen) {
@@ -527,45 +537,111 @@ export default function TemplateModal({
                                 )}
                             </div>
                         ) : (
-                            // User View (Restricted)
-                            <div
-                                className="advanced-mode-restricted"
-                                onClick={() => alert("Chức năng này yêu cầu quyền Admin hoặc SuperAdmin để xem chi tiết Prompt.")}
-                                style={{
-                                    marginTop: '16px',
-                                    padding: '12px',
-                                    background: 'var(--bg-secondary)',
-                                    borderRadius: '8px',
-                                    border: '1px solid var(--border-color)',
-                                    cursor: 'pointer',
-                                    position: 'relative',
-                                    transition: 'all 0.2s'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--text-secondary)'}
-                                onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                            >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                                        <span>⚡</span>
-                                        <span>Prompt mẫu</span>
+                            // User View - Check if unlocked or show unlock button
+                            isPromptUnlocked ? (
+                                // Prompt đã mở khóa - hiển thị đầy đủ
+                                <div
+                                    className="advanced-mode-unlocked"
+                                    style={{
+                                        marginTop: '16px',
+                                        padding: '12px',
+                                        background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1))',
+                                        borderRadius: '8px',
+                                        border: '1px solid #10b981'
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 600, color: '#10b981' }}>
+                                            <span>⚡</span>
+                                            <span>Prompt mẫu</span>
+                                        </div>
+                                        <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#10b981', color: 'white', borderRadius: '12px' }}>✅ Đã mở khóa</span>
                                     </div>
-                                    <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: 'var(--bg-tertiary)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>🔒 Bị khóa</span>
+                                    <p style={{
+                                        fontSize: '0.85rem',
+                                        color: 'var(--text-primary)',
+                                        margin: 0,
+                                        lineHeight: '1.5',
+                                        whiteSpace: 'pre-wrap'
+                                    }}>
+                                        {template.stylePrompt || "Prompt mẫu của template này..."}
+                                    </p>
                                 </div>
-                                <p style={{
-                                    fontSize: '0.85rem',
-                                    color: 'var(--text-muted)',
-                                    display: '-webkit-box',
-                                    WebkitLineClamp: 3,
-                                    WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden',
-                                    margin: 0,
-                                    fontStyle: 'italic',
-                                    opacity: 0.8,
-                                    lineHeight: '1.4'
-                                }}>
-                                    {template.stylePrompt || "Prompt mẫu của template này..."}
-                                </p>
-                            </div>
+                            ) : (
+                                // Prompt bị khóa - hiển thị nút mở khóa
+                                <div
+                                    className="advanced-mode-restricted"
+                                    onClick={async () => {
+                                        if (unlockLoading) return;
+                                        if (!userId) {
+                                            alert('Vui lòng đăng nhập để mở khóa prompt.');
+                                            return;
+                                        }
+
+                                        setUnlockLoading(true);
+                                        try {
+                                            const result = await onUnlockPrompt?.(template.id);
+                                            if (result?.success) {
+                                                setIsPromptUnlocked(true);
+                                                setUnlockInfo(result.info || unlockInfo);
+                                            } else {
+                                                alert(result?.error || 'Không thể mở khóa. Vui lòng thử lại.');
+                                            }
+                                        } catch (err) {
+                                            alert('Lỗi mở khóa: ' + err.message);
+                                        }
+                                        setUnlockLoading(false);
+                                    }}
+                                    style={{
+                                        marginTop: '16px',
+                                        padding: '12px',
+                                        background: 'var(--bg-secondary)',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--border-color)',
+                                        cursor: unlockLoading ? 'wait' : 'pointer',
+                                        position: 'relative',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                                    onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                            <span>⚡</span>
+                                            <span>Prompt mẫu</span>
+                                        </div>
+                                        <span style={{
+                                            fontSize: '0.75rem',
+                                            padding: '4px 12px',
+                                            background: unlockLoading ? '#94a3b8' : '#3b82f6',
+                                            color: 'white',
+                                            borderRadius: '12px',
+                                            fontWeight: 600
+                                        }}>
+                                            {unlockLoading ? '⏳ Đang mở...' : '🔓 Mở khóa (2 coin)'}
+                                        </span>
+                                    </div>
+                                    <p style={{
+                                        fontSize: '0.85rem',
+                                        color: 'var(--text-muted)',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                        margin: 0,
+                                        fontStyle: 'italic',
+                                        opacity: 0.6,
+                                        lineHeight: '1.4',
+                                        filter: 'blur(3px)',
+                                        userSelect: 'none'
+                                    }}>
+                                        {template.stylePrompt || "Prompt mẫu của template này..."}
+                                    </p>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px', marginBottom: 0 }}>
+                                        💡 Click để mở khóa và xem prompt đầy đủ
+                                    </p>
+                                </div>
+                            )
                         )}
 
                         {isCustomTemplate ? renderCustomForm() : renderDefaultForm()}
@@ -652,11 +728,7 @@ export default function TemplateModal({
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
                                 </svg>
                                 <span>
-                                    {(() => {
-                                        const allModels = [...IMAGE_MODELS.openai, ...IMAGE_MODELS.gemini, ...IMAGE_MODELS.replicate];
-                                        const price = allModels.find(m => m.value === selectedImageModel)?.price || 0;
-                                        return price > 0 ? `Tạo Thiết Kế ($${price})` : 'Tạo Thiết Kế (Miễn phí)';
-                                    })()}
+                                    Tạo Thiết Kế (5 coin)
                                 </span>
                             </button>
                         </div>

@@ -4,7 +4,7 @@ import TemplateCard from '../components/TemplateCard';
 import TemplateModal from '../components/TemplateModal';
 import CanvasPreview from '../components/CanvasPreview';
 import ApiKeySettings from '../components/ApiKeySettings';
-import { templatesApi, categoriesApi, designsApi, getImageUrl } from '../services/api';
+import { templatesApi, categoriesApi, designsApi, getImageUrl, checkPromptUnlock, unlockPrompt, getUserUnlockCount, getPackageUnlockLimit, deductCoins, COIN_PRICES } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useFeatures } from '../hooks/useFeatures';
 import { useUserRole } from '../hooks/useUserRole';
@@ -33,6 +33,42 @@ export default function Gallery({ searchValue, activeCategory }) {
     const [showCanvasPreview, setShowCanvasPreview] = useState(false);
     const [canvasPreviewData, setCanvasPreviewData] = useState(null);
     const [generatedImage, setGeneratedImage] = useState(null);
+    const [userPackage, setUserPackage] = useState('Trial');
+
+    // Handler for prompt unlock - sử dụng coin
+    const handleUnlockPrompt = async (templateId) => {
+        if (!user?.id) return { success: false, error: 'Chưa đăng nhập' };
+
+        // Use top-level imports
+
+
+        try {
+            // Check if already unlocked
+            const existing = await checkPromptUnlock(user.id, templateId);
+            if (existing) {
+                return { success: true, alreadyUnlocked: true };
+            }
+
+            // Deduct coins (2 coin per unlock)
+            const deductResult = await deductCoins(user.id, COIN_PRICES.UNLOCK_PROMPT, 'unlock_prompt');
+            if (!deductResult.success) {
+                return {
+                    success: false,
+                    error: deductResult.error
+                };
+            }
+
+            // Unlock the prompt
+            await unlockPrompt(user.id, templateId);
+            return {
+                success: true,
+                info: { balance: deductResult.balance }
+            };
+        } catch (error) {
+            console.error('Unlock error:', error);
+            return { success: false, error: error.message };
+        }
+    };
 
 
     // Load templates, categories and favorites on mount
@@ -316,6 +352,19 @@ export default function Gallery({ searchValue, activeCategory }) {
             let usedPrompt = '';
 
             if (useGemini) {
+                // Deduct coins for image generation
+                if (user?.id) {
+                    const deductResult = await deductCoins(user.id, COIN_PRICES.GENERATE_IMAGE, 'generate_image');
+                    if (!deductResult.success) {
+                        document.getElementById('generating-alert')?.remove();
+                        alert(deductResult.error);
+                        return;
+                    }
+                    console.log(`✅ Đã trừ ${COIN_PRICES.GENERATE_IMAGE} coin cho việc tạo ảnh`);
+                    // Update balance in UserMenu
+                    window.dispatchEvent(new CustomEvent('balance-updated'));
+                }
+
                 // ====== GEMINI + IMAGEN 3 - Two-step process for high quality images ======
                 console.log('Using Gemini + Imagen 3 for generation...');
 
@@ -1357,6 +1406,10 @@ Start with the style, then describe each element precisely. Ensure the prompt ex
                 onUpdateCategory={handleUpdateCategory}
                 isSuperAdmin={isSuperAdmin}
                 categories={categories}
+                // Prompt unlock props
+                userId={user?.id}
+                userPackage={userPackage}
+                onUnlockPrompt={handleUnlockPrompt}
             />
 
             {/* Canvas Preview Modal */}

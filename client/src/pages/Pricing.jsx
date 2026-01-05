@@ -11,6 +11,7 @@ const packages = [
         price: 'Miễn phí',
         duration: '3 ngày',
         features: [
+            'Tặng 10 coin',
             'Xem templates',
             'Tạo 5 designs',
             'Hỗ trợ cơ bản',
@@ -25,6 +26,7 @@ const packages = [
         price: '199.000đ',
         duration: '/tháng',
         features: [
+            'Tặng 50 coin',
             'Xem tất cả templates',
             'Tạo unlimited designs',
             'Xuất ảnh HD',
@@ -40,6 +42,7 @@ const packages = [
         price: '499.000đ',
         duration: '/tháng',
         features: [
+            'Tặng 200 coin',
             'Tất cả tính năng Starter',
             'API access',
             'Tạo templates custom',
@@ -257,6 +260,68 @@ export default function Pricing() {
                         redeemed_at: new Date().toISOString()
                     })
                 });
+            }
+
+            // 6. Credit Coins AUTOMATICALLY for new subscription
+            try {
+                const packageTableId = TABLE_IDS.Packages || 'm9fazh5nc6dt1a3';
+                const pkgRes = await fetch(
+                    `${baseUrl}/api/v2/tables/${packageTableId}/records?where=(name,eq,${pkgId})&limit=1`,
+                    { headers: { 'xc-token': token } }
+                );
+                const pkgJson = await pkgRes.json();
+                const pkgCoins = pkgJson.list?.[0]?.coins || 0;
+
+                if (pkgCoins > 0) {
+                    let multiplier = 1;
+                    const days = voucher.DurationDays || 30;
+                    if (days >= 300) {
+                        multiplier = 12; // Yearly = 12 months
+                    } else if (days >= 90) {
+                        multiplier = 3;  // Quarterly = 3 months
+                    }
+
+                    const totalCoins = pkgCoins * multiplier;
+
+                    if (totalCoins > 0) {
+                        const walletTableId = TABLE_IDS.Wallets || 'm16m58ti6kjlax0';
+
+                        // Check existing wallet
+                        const walletRes = await fetch(
+                            `${baseUrl}/api/v2/tables/${walletTableId}/records?where=(user_id,eq,${user.id})&limit=1`,
+                            { headers: { 'xc-token': token } }
+                        );
+                        const walletJson = await walletRes.json();
+                        const existingWallet = walletJson.list?.[0];
+
+                        if (existingWallet) {
+                            // Update existing wallet
+                            const newBalance = (existingWallet.balance || 0) + totalCoins;
+                            await fetch(`${baseUrl}/api/v2/tables/${walletTableId}/records`, {
+                                method: 'PATCH',
+                                headers: { 'xc-token': token, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    Id: existingWallet.Id,
+                                    balance: newBalance
+                                })
+                            });
+                        } else {
+                            // Create new wallet
+                            await fetch(`${baseUrl}/api/v2/tables/${walletTableId}/records`, {
+                                method: 'POST',
+                                headers: { 'xc-token': token, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    user_id: user.id,
+                                    balance: totalCoins
+                                })
+                            });
+                        }
+
+                        console.log(`💰 Credited ${totalCoins} coins to user ${user.id}`);
+                    }
+                }
+            } catch (errCoins) {
+                console.error('Coin credit error:', errCoins);
             }
 
             setRedeemStatus('success');

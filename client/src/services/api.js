@@ -21,7 +21,11 @@ export let TABLE_IDS = {
     Vouchers: 'mhgqm56k0lobsgn',     // Correct ID for [Vouchers]
     vouchers: 'mhgqm56k0lobsgn',
     VoucherRedemptions: 'mgzw8dqt69tp478', // Table to track who redeemed
-    voucherRedemptions: 'mgzw8dqt69tp478'
+    voucherRedemptions: 'mgzw8dqt69tp478',
+    PromptUnlocks: 'm5amf5e7wwqngfw',     // Table to track prompt unlocks
+    prompt_unlocks: 'm5amf5e7wwqngfw',
+    Packages: 'm9fazh5nc6dt1a3',           // payment_packages table
+    payment_packages: 'm9fazh5nc6dt1a3'
 };
 
 // Export configuration
@@ -395,6 +399,218 @@ export async function healthCheck() {
         return { status: 'ok', message: 'NocoDB connected' };
     } catch (error) {
         throw new Error('NocoDB not reachable');
+    }
+}
+
+// ==========================================
+// PROMPT UNLOCKS API
+// ==========================================
+
+/**
+ * Check if user has unlocked a template (within 30 days)
+ */
+export async function checkPromptUnlock(userId, templateId) {
+    const tableId = TABLE_IDS.PromptUnlocks;
+    const now = new Date().toISOString();
+
+    try {
+        const response = await fetch(
+            `${NOCODB_URL}/api/v2/tables/${tableId}/records?where=(user_id,eq,${userId})~and(template_id,eq,${templateId})~and(expires_at,gt,${now})&limit=1`,
+            { headers: { 'xc-token': NOCODB_TOKEN } }
+        );
+        const data = await response.json();
+        return data.list?.length > 0 ? data.list[0] : null;
+    } catch (error) {
+        console.error('Error checking unlock:', error);
+        return null;
+    }
+}
+
+/**
+ * Get user's unlock count in last 30 days
+ */
+export async function getUserUnlockCount(userId) {
+    const tableId = TABLE_IDS.PromptUnlocks;
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    try {
+        const response = await fetch(
+            `${NOCODB_URL}/api/v2/tables/${tableId}/records?where=(user_id,eq,${userId})~and(unlocked_at,gt,${thirtyDaysAgo.toISOString()})`,
+            { headers: { 'xc-token': NOCODB_TOKEN } }
+        );
+        const data = await response.json();
+        return data.list?.length || 0;
+    } catch (error) {
+        console.error('Error getting unlock count:', error);
+        return 0;
+    }
+}
+
+/**
+ * Unlock a prompt template for user
+ */
+export async function unlockPrompt(userId, templateId) {
+    const tableId = TABLE_IDS.PromptUnlocks;
+    const now = new Date();
+    const expires = new Date();
+    expires.setDate(expires.getDate() + 30);
+
+    try {
+        const response = await fetch(
+            `${NOCODB_URL}/api/v2/tables/${tableId}/records`,
+            {
+                method: 'POST',
+                headers: {
+                    'xc-token': NOCODB_TOKEN,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    user_id: userId,
+                    template_id: templateId,
+                    unlocked_at: now.toISOString(),
+                    expires_at: expires.toISOString()
+                })
+            }
+        );
+        return await response.json();
+    } catch (error) {
+        console.error('Error unlocking prompt:', error);
+        throw error;
+    }
+}
+
+/**
+ * Get package unlock limit by package name
+ */
+export async function getPackageUnlockLimit(packageName) {
+    const tableId = TABLE_IDS.Packages;
+
+    try {
+        const response = await fetch(
+            `${NOCODB_URL}/api/v2/tables/${tableId}/records?where=(name,eq,${packageName})&limit=1`,
+            { headers: { 'xc-token': NOCODB_TOKEN } }
+        );
+        const data = await response.json();
+        return data.list?.[0]?.prompt_unlocks || 0;
+    } catch (error) {
+        console.error('Error getting package limit:', error);
+        return 0;
+    }
+}
+
+/**
+ * Get user's unlock history
+ */
+export async function getUserUnlockHistory(userId, limit = 50) {
+    const tableId = TABLE_IDS.PromptUnlocks;
+
+    try {
+        const response = await fetch(
+            `${NOCODB_URL}/api/v2/tables/${tableId}/records?where=(user_id,eq,${userId})&sort=-unlocked_at&limit=${limit}`,
+            { headers: { 'xc-token': NOCODB_TOKEN } }
+        );
+        const data = await response.json();
+        return data.list || [];
+    } catch (error) {
+        console.error('Error getting unlock history:', error);
+        return [];
+    }
+}
+
+// ==========================================
+// COIN SYSTEM API
+// ==========================================
+
+// Giá coin
+export const COIN_PRICES = {
+    UNLOCK_PROMPT: 2,  // 2 coin = 1 lần mở khóa prompt
+    GENERATE_IMAGE: 5, // 5 coin = 1 lần tạo ảnh
+    VND_PER_COIN: 1000 // 1 coin = 1000 VNĐ
+};
+
+/**
+ * Get user's coin balance
+ */
+export async function getUserCoinBalance(userId) {
+    const tableId = TABLE_IDS.Wallets || 'm16m58ti6kjlax0';
+
+    try {
+        const response = await fetch(
+            `${NOCODB_URL}/api/v2/tables/${tableId}/records?where=(user_id,eq,${userId})&limit=1`,
+            { headers: { 'xc-token': NOCODB_TOKEN } }
+        );
+        const data = await response.json();
+        return data.list?.[0]?.balance || 0;
+    } catch (error) {
+        console.error('Error getting coin balance:', error);
+        return 0;
+    }
+}
+
+/**
+ * Deduct coins from user balance
+ * @param {string} userId 
+ * @param {number} amount - số coin cần trừ
+ * @param {string} reason - lý do: 'unlock_prompt' | 'generate_image'
+ */
+export async function deductCoins(userId, amount, reason) {
+    const tableId = TABLE_IDS.Wallets || 'm16m58ti6kjlax0';
+
+    try {
+        // Get current balance
+        const response = await fetch(
+            `${NOCODB_URL}/api/v2/tables/${tableId}/records?where=(user_id,eq,${userId})&limit=1`,
+            { headers: { 'xc-token': NOCODB_TOKEN } }
+        );
+        const data = await response.json();
+        const record = data.list?.[0];
+
+        if (!record) {
+            return { success: false, error: 'Không tìm thấy ví người dùng' };
+        }
+
+        const currentBalance = record.balance || 0;
+        if (currentBalance < amount) {
+            return {
+                success: false,
+                error: `Không đủ coin. Bạn có ${currentBalance} coin, cần ${amount} coin.`,
+                balance: currentBalance,
+                required: amount
+            };
+        }
+
+        // Deduct coins
+        const newBalance = currentBalance - amount;
+        const updateResponse = await fetch(
+            `${NOCODB_URL}/api/v2/tables/${tableId}/records`,
+            {
+                method: 'PATCH',
+                headers: {
+                    'xc-token': NOCODB_TOKEN,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    Id: record.Id,
+                    balance: newBalance
+                })
+            }
+        );
+
+        if (!updateResponse.ok) {
+            throw new Error('Không thể cập nhật số dư');
+        }
+
+        console.log(`✅ Đã trừ ${amount} coin cho ${reason}. Số dư mới: ${newBalance}`);
+        return {
+            success: true,
+            balance: newBalance,
+            deducted: amount,
+            reason
+        };
+    } catch (error) {
+        console.error('Error deducting coins:', error);
+        return { success: false, error: error.message };
     }
 }
 

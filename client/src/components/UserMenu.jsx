@@ -15,6 +15,13 @@ export default function UserMenu({ onOpenProfile }) {
     useEffect(() => {
         if (user?.id) {
             fetchUserData(user.id);
+
+            const handleBalanceUpdate = () => fetchUserData(user.id);
+            window.addEventListener('balance-updated', handleBalanceUpdate);
+
+            return () => {
+                window.removeEventListener('balance-updated', handleBalanceUpdate);
+            };
         }
     }, [user]);
 
@@ -149,10 +156,38 @@ export default function UserMenu({ onOpenProfile }) {
                     </svg>
                     Nâng cấp
                 </button>
-                <div className="header-coin-display">
-                    <span className="coin-icon">🪙</span>
-                    <span className="coin-value">{coinBalance.toLocaleString()}</span>
-                    <button className="header-topup-btn" onClick={handleTopUp}>+ Nạp Coin</button>
+                <div className="header-coin-display" style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: 'linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%)',
+                    padding: '4px 8px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: '#000'
+                }}>
+                    <span>💰</span>
+                    <span>{coinBalance.toLocaleString()}</span>
+                    <button
+                        onClick={handleTopUp}
+                        style={{
+                            background: 'rgba(0,0,0,0.15)',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '18px',
+                            height: '18px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            color: '#000',
+                            marginLeft: '2px'
+                        }}
+                        title="Nạp Coin"
+                    >+</button>
                 </div>
             </div>
 
