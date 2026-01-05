@@ -169,13 +169,25 @@ export default function Pricing() {
             const subTableId = TABLE_IDS.Subscriptions || TABLE_IDS.subscriptions;
             if (!subTableId) throw new Error('Lỗi cấu hình hệ thống (Sub table missing)');
 
-            // Find existing sub
+            // Find existing sub - get the active one or the most recent
             const subRes = await fetch(
-                `${baseUrl}/api/v2/tables/${subTableId}/records?where=(user_id,eq,${user.id})&limit=1`,
+                `${baseUrl}/api/v2/tables/${subTableId}/records?where=(user_id,eq,${user.id})~and(status,eq,active)&sort=-Id&limit=1`,
                 { headers: { 'xc-token': token } }
             );
-            const subData = await subRes.json();
-            const existingSub = subData.list?.[0];
+            let subData = await subRes.json();
+            let existingSub = subData.list?.[0];
+
+            // If no active sub found, get the most recent one
+            if (!existingSub) {
+                const subRes2 = await fetch(
+                    `${baseUrl}/api/v2/tables/${subTableId}/records?where=(user_id,eq,${user.id})&sort=-Id&limit=1`,
+                    { headers: { 'xc-token': token } }
+                );
+                subData = await subRes2.json();
+                existingSub = subData.list?.[0];
+            }
+
+            console.log('🔍 Found subscription:', existingSub);
 
             const pkgId = voucher.PackageId || 'HocVien';
             const durationDays = voucher.DurationDays || 365; // Default 1 year
