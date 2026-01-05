@@ -15,6 +15,48 @@ import Register from './pages/Register';
 import VerifyEmail from './pages/VerifyEmail'; // Added this import
 import Pricing from './pages/Pricing';
 
+import AdminVouchers from './pages/AdminVouchers';
+import { useUserRole } from './hooks/useUserRole';
+
+// Admin Route component
+const AdminRoute = ({ children }) => {
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { role, isAdmin, loading: roleLoading } = useUserRole();
+
+  console.log("🛡️ Checking Admin Route:", { isAuthenticated, role, isAdmin, authLoading, roleLoading });
+
+  if (authLoading || roleLoading) {
+    return (
+      <div className="loading-screen">
+        <div className="spinner"></div>
+        <p>Đang kiểm tra quyền...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  // Debug: Show why access is denied
+  if (!isAdmin) {
+    return (
+      <div style={{ padding: '50px', color: 'white', textAlign: 'center' }}>
+        <h1>Truy cập bị từ chối</h1>
+        <p>Bạn không có quyền truy cập trang này.</p>
+        <p>Current Role: <strong>{role || 'None'}</strong></p>
+        <p>User ID: {useAuth().user?.id}</p>
+        <button
+          onClick={() => window.location.href = '/'}
+          style={{ marginTop: '20px', padding: '10px 20px', cursor: 'pointer' }}
+        >
+          Quay lại trang chủ
+        </button>
+      </div>
+    );
+  }
+
+  return children;
+};
+
 // Protected Route component
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -115,6 +157,14 @@ function AppRoutes() {
                     <ApiKeysPage />
                   </ProtectedRoute>
                 } />
+
+                {/* Admin Routes */}
+                <Route path="/admin/vouchers" element={
+                  <AdminRoute>
+                    <AdminVouchers />
+                  </AdminRoute>
+                } />
+
                 <Route path="/editor/:id" element={
                   <ProtectedRoute>
                     <Editor />

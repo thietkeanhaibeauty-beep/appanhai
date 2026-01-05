@@ -10,15 +10,18 @@ export let TABLE_IDS = {
     Templates: null,
     Designs: null,
     ApiKeys: null,
-    UserRoles: null, // Add UserRoles table
-    "User Roles": null,
+    UserRoles: 'm0bix8eqprite24', // Hardcoded ID for user_roles table
+    "User Roles": 'm0bix8eqprite24',
+    user_roles: 'm0bix8eqprite24', // snake_case variant
     Subscriptions: 'myjov622ntt3j73', // Correct ID for [user_subscriptions]
     subscriptions: 'myjov622ntt3j73',
     Wallets: 'm16m58ti6kjlax0',      // Correct ID for [user_balances]
     wallets: 'm16m58ti6kjlax0',
     Users: 'm16m58ti6kjlax0',
     Vouchers: 'mhgqm56k0lobsgn',     // Correct ID for [Vouchers]
-    vouchers: 'mhgqm56k0lobsgn'
+    vouchers: 'mhgqm56k0lobsgn',
+    VoucherRedemptions: 'mgzw8dqt69tp478', // Table to track who redeemed
+    voucherRedemptions: 'mgzw8dqt69tp478'
 };
 
 // Export configuration

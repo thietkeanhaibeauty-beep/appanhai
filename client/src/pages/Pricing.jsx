@@ -58,6 +58,7 @@ export default function Pricing() {
     const navigate = useNavigate();
 
     const [voucherCode, setVoucherCode] = useState('');
+    const [phoneNumber, setPhoneNumber] = useState(''); // Optional phone input
     const [redeemStatus, setRedeemStatus] = useState('idle'); // idle, loading, success, error
     const [redeemMsg, setRedeemMsg] = useState('');
 
@@ -83,8 +84,15 @@ export default function Pricing() {
             const token = NOCODB_TOKEN || '1wrsHNcz_FNeptaeMvP7jqrcVpm0GtD_8JScOLGo';
 
             // 1. Find Voucher using 'like' to handle accidental spaces in DB
+            // Tìm trong cả cột Code và cột AllowedPhones (nếu có)
             const voucherTableId = TABLE_IDS.Vouchers || 'mhgqm56k0lobsgn';
-            const query = `(Code,like,${voucherCode.trim()})`;
+
+            // Query tìm kiếm linh hoạt:
+            // - Hoặc Code giống input
+            // - Hoặc AllowedPhones chứa input (sẽ verify kỹ hơn ở bước sau)
+            const inputClean = voucherCode.trim();
+            const query = `(Code,like,${inputClean})~or(AllowedPhones,like,${inputClean})`;
+
             const voucherRes = await fetch(
                 `${baseUrl}/api/v2/tables/${voucherTableId}/records?where=${encodeURIComponent(query)}&limit=10`,
                 { headers: { 'xc-token': token } }
@@ -93,20 +101,53 @@ export default function Pricing() {
             if (!voucherRes.ok) throw new Error('Lỗi kiểm tra mã');
             const voucherData = await voucherRes.json();
 
-            // Client-side strict check (ignoring case and spaces)
-            const inputCode = voucherCode.trim().toLowerCase();
+            // Tìm voucher theo Code
             const voucher = voucherData.list?.find(v =>
-                v.Code && v.Code.toString().trim().toLowerCase() === inputCode
+                v.Code && v.Code.toString().trim().toLowerCase() === inputClean.toLowerCase()
             );
 
             if (!voucher) {
                 setRedeemStatus('error');
-                setRedeemMsg('Mã kích hoạt không tồn tại');
+                setRedeemMsg('Mã lớp không tồn tại trong hệ thống');
                 return;
             }
 
+            // Check if this voucher requires phone (has AllowedPhones)
+            const hasAllowedPhones = voucher.AllowedPhones && voucher.AllowedPhones.trim().length > 0;
+            const phoneInput = phoneNumber.trim();
+
+            if (hasAllowedPhones) {
+                // Phone is REQUIRED for class vouchers
+                if (!phoneInput) {
+                    setRedeemStatus('error');
+                    setRedeemMsg('Mã này yêu cầu nhập Số điện thoại học viên');
+                    return;
+                }
+
+                // Check phone is in AllowedPhones list
+                const allowedPhones = voucher.AllowedPhones.split(/[\n,;]+/).map(p => p.trim());
+                if (!allowedPhones.includes(phoneInput)) {
+                    setRedeemStatus('error');
+                    setRedeemMsg('Số điện thoại không có trong danh sách lớp này');
+                    return;
+                }
+
+                // Check if this phone already redeemed this voucher
+                const redemptionsTableId = TABLE_IDS.VoucherRedemptions || 'mgzw8dqt69tp478';
+                const checkRedemptionRes = await fetch(
+                    `${baseUrl}/api/v2/tables/${redemptionsTableId}/records?where=(voucher_code,eq,${encodeURIComponent(voucher.Code)})~and(phone,eq,${encodeURIComponent(phoneInput)})&limit=1`,
+                    { headers: { 'xc-token': token } }
+                );
+                const checkData = await checkRedemptionRes.json();
+                if (checkData.list && checkData.list.length > 0) {
+                    setRedeemStatus('error');
+                    setRedeemMsg('Số điện thoại này đã kích hoạt mã lớp rồi!');
+                    return;
+                }
+            }
+
             // 2. Validate Voucher
-            if (voucher.IsActive === false) { // Check explicit false, assume true if undefined
+            if (voucher.IsActive === false) {
                 setRedeemStatus('error');
                 setRedeemMsg('Mã này đã bị vô hiệu hóa');
                 return;
@@ -184,6 +225,23 @@ export default function Pricing() {
                 })
             });
 
+            // 5. Log redemption if this is a class voucher
+            if (voucher.AllowedPhones && phoneNumber.trim()) {
+                const redemptionsTableId = TABLE_IDS.VoucherRedemptions || 'mgzw8dqt69tp478';
+                await fetch(`${baseUrl}/api/v2/tables/${redemptionsTableId}/records`, {
+                    method: 'POST',
+                    headers: { 'xc-token': token, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        voucher_code: voucher.Code,
+                        phone: phoneNumber.trim(),
+                        user_id: user.id,
+                        user_email: user.email || '',
+                        package_id: pkgId,
+                        redeemed_at: new Date().toISOString()
+                    })
+                });
+            }
+
             setRedeemStatus('success');
             setRedeemMsg(`Kích hoạt thành công gói ${pkgId}! Vui lòng đợi trong giây lát...`);
 
@@ -218,16 +276,27 @@ export default function Pricing() {
                     textAlign: 'center'
                 }}>
                     <h3 style={{ fontSize: '16px', marginBottom: '15px', color: '#374151' }}>
-                        Bạn có mã kích hoạt hoặc SĐT học viên?
+                        Kích hoạt gói học viên
                     </h3>
-                    <div className="voucher-input-group" style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         <input
                             type="text"
-                            placeholder="Nhập mã hoặc SĐT..."
+                            placeholder="Mã lớp (bắt buộc)"
                             value={voucherCode}
                             onChange={e => setVoucherCode(e.target.value)}
                             style={{
-                                flex: 1,
+                                padding: '10px 15px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                outline: 'none'
+                            }}
+                        />
+                        <input
+                            type="text"
+                            placeholder="Số điện thoại học viên (nếu có)"
+                            value={phoneNumber}
+                            onChange={e => setPhoneNumber(e.target.value)}
+                            style={{
                                 padding: '10px 15px',
                                 border: '1px solid #d1d5db',
                                 borderRadius: '8px',
@@ -241,7 +310,7 @@ export default function Pricing() {
                                 background: '#3b82f6',
                                 color: 'white',
                                 border: 'none',
-                                padding: '10px 20px',
+                                padding: '12px 20px',
                                 borderRadius: '8px',
                                 cursor: redeemStatus === 'loading' ? 'not-allowed' : 'pointer',
                                 fontWeight: '600'

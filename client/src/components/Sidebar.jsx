@@ -16,6 +16,7 @@ const menuItems = [
 const adminMenuItems = [
   { id: 'template', label: 'Tạo Template Mới', icon: 'settings', path: '/template', featureKey: 'manage_api_keys' },
   { id: 'api-keys', label: 'API Keys', icon: 'settings', path: '/api-keys', featureKey: 'manage_api_keys' },
+  { id: 'vouchers', label: 'Quản lý Lớp học', icon: 'folder', path: '/admin/vouchers', featureKey: 'manage_vouchers' }, // featureKey can match existing or assume admin access via isAdmin check
 ];
 
 const categories = [
