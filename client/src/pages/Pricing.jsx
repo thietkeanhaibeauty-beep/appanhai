@@ -188,13 +188,15 @@ export default function Pricing() {
                 package_id: pkgId,
                 status: 'active',
                 start_date: startDate.toISOString(),
-                end_date: endDate.toISOString(),
-                updated_at: new Date().toISOString()
+                end_date: endDate.toISOString()
+                // Không gửi UpdatedAt vì NocoDB tự sinh
             };
 
+            console.log('📦 Updating subscription:', { existingSub, updateBody, subTableId });
+
             if (existingSub) {
-                // Update
-                await fetch(`${baseUrl}/api/v2/tables/${subTableId}/records`, {
+                // Update existing subscription
+                const updateRes = await fetch(`${baseUrl}/api/v2/tables/${subTableId}/records`, {
                     method: 'PATCH',
                     headers: { 'xc-token': token, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -202,6 +204,7 @@ export default function Pricing() {
                         ...updateBody
                     })
                 });
+                console.log('Update response:', updateRes.status, await updateRes.text());
             } else {
                 // Create new (should rare if auto-trial exists)
                 await fetch(`${baseUrl}/api/v2/tables/${subTableId}/records`, {
