@@ -189,7 +189,9 @@ export default function Pricing() {
 
             console.log('🔍 Found subscription:', existingSub);
 
+            // Dùng trực tiếp PackageId từ voucher (NocoDB đã có option HocVien)
             const pkgId = voucher.PackageId || 'HocVien';
+            console.log('📦 Using package:', pkgId);
             const durationDays = voucher.DurationDays || 365; // Default 1 year
 
             const startDate = new Date();
